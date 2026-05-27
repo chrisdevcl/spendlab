@@ -1,0 +1,98 @@
+:root {
+  /* Injected at runtime by Next.js font loader — declared here for IDE resolution */
+  --font-geist-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-geist-mono: ui-monospace, "Cascadia Code", monospace;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, ui-serif, Georgia, serif;
+  --color-primary: #0D9488;
+  --color-primary-bg: rgba(13, 148, 136, 0.09);
+  --color-bg: #f5f5f3;
+  --color-bg-surface: #ffffff;
+  --color-bg-muted: #f0efed;
+  --color-text: #1a1a18;
+  --color-text-muted: #6b6b67;
+  --color-text-hint: #9b9b96;
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-border-strong: rgba(0, 0, 0, 0.2);
+  --color-positive: #0d6e4f;
+  --color-positive-bg: rgba(13, 110, 79, 0.08);
+  --color-negative: #b91c1c;
+  --color-negative-bg: rgba(185, 28, 28, 0.08);
+  --color-info: #1d4ed8;
+  --color-info-bg: rgba(29, 78, 216, 0.07);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  --page-padding: 1rem;
+}
+
+/* ── Dark mode variables ─────────────────────────────────────────────────── */
+/* Shared token set used by both the media-query and data-theme overrides */
+
+@media (prefers-color-scheme: dark) {
+  /* Only activate when no explicit theme has been set by the user */
+  html:not([data-theme="light"]) {
+    --color-bg: #111110;
+    --color-bg-surface: #1c1c1a;
+    --color-bg-muted: #2a2a26;
+    --color-text: #f0efed;
+    --color-text-muted: #8a8a85;
+    --color-text-hint: #5a5a56;
+    --color-border: rgba(255, 255, 255, 0.07);
+    --color-border-strong: rgba(255, 255, 255, 0.14);
+    --color-positive: #6ee7b7;
+    --color-positive-bg: rgba(16, 185, 129, 0.18);
+    --color-negative: #fca5a5;
+    --color-negative-bg: rgba(220, 38, 38, 0.18);
+  }
+}
+
+/* Manual dark override — wins over media query */
+html[data-theme="dark"] {
+  --color-bg: #111110;
+  --color-bg-surface: #1c1c1a;
+  --color-bg-muted: #2a2a26;
+  --color-text: #f0efed;
+  --color-text-muted: #8a8a85;
+  --color-text-hint: #5a5a56;
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-positive: #6ee7b7;
+  --color-positive-bg: rgba(16, 185, 129, 0.18);
+  --color-negative: #fca5a5;
+  --color-negative-bg: rgba(220, 38, 38, 0.18);
+  color-scheme: dark;
+}
+
+/* Manual light override */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100dvh;
+  color-scheme: light dark;
+}
+
+body {
+  height: 100dvh;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

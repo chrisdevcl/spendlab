@@ -1,0 +1,447 @@
+/* ── Page ───────────────────────────────────────────────────────────────── */
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--page-padding) 2rem;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem var(--page-padding);
+  flex-shrink: 0;
+}
+
+.headerCenter {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+
+.iconBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  border: none;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.iconBtn:active { opacity: 0.6; }
+
+.groupName {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.groupSubtitle {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 0.1rem;
+}
+
+.inviteBtn {
+  padding: 0.4rem 0.875rem;
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+}
+.inviteBtn:hover { background: var(--color-bg-muted); }
+
+/* ── Balance card (multi-member, always teal) ───────────────────────────── */
+.balanceCard {
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 20px;
+  padding: 1.375rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.balanceEyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.78;
+  margin-bottom: 0.5rem;
+}
+
+.balanceAmount {
+  font-family: var(--font-serif), serif;
+  font-size: 2.25rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 0.375rem;
+}
+
+.balanceSub {
+  font-size: 0.9375rem;
+  opacity: 0.9;
+}
+
+.balanceRegisterBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-full);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.balanceRegisterBtn:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* ── Section ────────────────────────────────────────────────────────────── */
+.section {
+  margin-bottom: 1.5rem;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.625rem;
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.addBtn {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+  padding: 0.25rem 0;
+}
+
+/* ── Debt list ──────────────────────────────────────────────────────────── */
+.debtList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.debtRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+}
+
+.debtAvatars {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.avatarSm {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.arrow {
+  color: var(--color-text-hint);
+  flex-shrink: 0;
+}
+
+.debtInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.debtNames {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.debtAmount {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+}
+
+.payBtn {
+  padding: 0.375rem 0.875rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.payBtn:hover { opacity: 0.88; }
+.payBtn:active { opacity: 0.72; }
+
+/* ── Expense list ───────────────────────────────────────────────────────── */
+.expenseList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.expenseRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s;
+}
+.expenseRow:active { background: var(--color-bg-muted); }
+
+.expenseInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.expenseRowTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.expenseRowBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.expenseDesc {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.expenseAmount {
+  font-family: var(--font-serif), serif;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.expenseMeta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expenseShare {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.expenseChevron {
+  color: var(--color-text-hint);
+  flex-shrink: 0;
+}
+
+/* ── Empty expenses ─────────────────────────────────────────────────────── */
+.emptyExpenses {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.emptySub {
+  font-size: 0.8125rem;
+  color: var(--color-text-hint);
+  margin-top: 0.25rem;
+}
+
+/* ── Modal backdrop ─────────────────────────────────────────────────────── */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--page-padding);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+}
+
+/* ── Modal sheet ────────────────────────────────────────────────────────── */
+.modal {
+  width: 100%;
+  background-color: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.modalTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 0.375rem;
+}
+
+.modalSub {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+}
+
+.modalInput {
+  width: 100%;
+  padding: 1rem 1.125rem;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.modalInput::placeholder { color: var(--color-text-hint); }
+.modalInput:focus { border-color: var(--color-primary); }
+
+.modalError {
+  font-size: 0.8125rem;
+  color: var(--color-negative);
+  margin-top: 0.5rem;
+}
+
+.modalActions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.btnCancel {
+  flex: 1;
+  padding: 1rem;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.btnCancel:hover { background: var(--color-bg-muted); }
+
+.btnConfirm {
+  flex: 1;
+  padding: 1rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btnConfirm:hover { opacity: 0.88; }
+.btnConfirm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Invite success ─────────────────────────────────────────────────────── */
+.inviteSuccess {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+
+.successIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--color-positive-bg);
+  color: var(--color-positive);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.375rem;
+  font-weight: 700;
+}

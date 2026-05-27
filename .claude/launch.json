@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "spendlab",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev", "--port", "3741"],
+      "port": 3741
+    }
+  ]
+}

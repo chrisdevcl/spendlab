@@ -1,0 +1,250 @@
+/* ── Page ───────────────────────────────────────────────────────────────── */
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.header {
+  padding: 1.5rem var(--page-padding) 0;
+  flex-shrink: 0;
+}
+
+.heading {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ── Scrollable content ─────────────────────────────────────────────────── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem var(--page-padding) 2rem;
+}
+
+/* ── Balance card ───────────────────────────────────────────────────────── */
+.balanceCard {
+  width: 100%;
+  text-align: left;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 20px;
+  padding: 1.375rem 1.5rem;
+  margin-bottom: 1.5rem;
+  background: var(--color-primary);
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.balanceCard:active { opacity: 0.88; }
+
+.balanceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.375rem;
+}
+
+.balanceEyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.balanceAmount {
+  font-family: var(--font-serif), serif;
+  font-size: 2.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 1rem;
+}
+
+.balanceRow {
+  display: flex;
+  gap: 2rem;
+}
+
+.balanceStat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.balanceStatLabel {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.balanceStatValue {
+  font-family: var(--font-serif), serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.chevron {
+  transition: transform 0.2s;
+  opacity: 0.7;
+}
+
+.chevronUp {
+  transform: rotate(180deg);
+}
+
+/* ── Debt breakdown ─────────────────────────────────────────────────────── */
+.debtBreakdown {
+  margin-top: 0.75rem;
+}
+
+.debtDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+  margin-bottom: 0.75rem;
+}
+
+.debtItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.debtItemNames { opacity: 0.85; }
+.debtItemAmount { font-weight: 600; }
+
+/* ── Date groups ────────────────────────────────────────────────────────── */
+.group {
+  margin-bottom: 1.5rem;
+}
+
+.groupLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 0.625rem;
+  padding: 0 0.25rem;
+}
+
+/* ── Expense list ───────────────────────────────────────────────────────── */
+.expenseList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.expenseRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s;
+}
+.expenseRow:active { background: var(--color-bg-muted); }
+
+/* Left column: description + group badge */
+.expenseLeft {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.expenseDesc {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.groupBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Right column: amount+chevron / meta */
+.expenseRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.expenseAmountRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.expenseAmount {
+  font-family: var(--font-serif), serif;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.expenseChevron {
+  color: var(--color-text-hint);
+  flex-shrink: 0;
+}
+
+.expenseRightMeta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4rem 1rem 2rem;
+  text-align: center;
+  gap: 0.5rem;
+}
+
+.emptyIcon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+.emptyTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.emptyBody {
+  font-size: 0.875rem;
+  color: var(--color-text-hint);
+  max-width: 240px;
+  line-height: 1.5;
+}
