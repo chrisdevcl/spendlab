@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createSettlement as createSettlementService } from "@/lib/services/expenses.service";
 import { inviteMember as inviteMemberService } from "@/lib/services/groups.service";
+import { sendInvitationEmail } from "@/lib/email/invitation";
 
 export async function createSettlement(
   groupId: string,
@@ -53,6 +54,22 @@ export async function inviteMemberToGroup(
   const invitation = await inviteMemberService(groupId, trimmed, user.id);
   if (!invitation)
     return { error: "Error al enviar la invitación. Intenta de nuevo." };
+
+  // Send invitation email fire-and-forget — never block on email errors
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    // Fetch inviter display name and group name in parallel
+    const [profileRes, groupRes] = await Promise.all([
+      supabase.from("profiles").select("display_name").eq("id", user.id).single(),
+      supabase.from("groups").select("name").eq("id", groupId).single(),
+    ]);
+
+    const inviterName = profileRes.data?.display_name ?? user.email ?? "Alguien";
+    const groupName   = groupRes.data?.name ?? "un grupo";
+
+    sendInvitationEmail({ toEmail: trimmed, inviterName, groupName }).catch(
+      (err) => console.error("[inviteMemberToGroup] email error:", err)
+    );
+  }
 
   revalidatePath(`/groups/${groupId}`);
   return {};

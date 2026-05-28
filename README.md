@@ -13,10 +13,11 @@ PWA de gastos compartidos construida con Next.js 16 + Supabase.
 5. [Variables de entorno](#variables-de-entorno)
 6. [Configurar Supabase](#configurar-supabase)
 7. [Passkeys — puntos importantes](#passkeys--puntos-importantes)
-8. [Configurar notificaciones push](#configurar-notificaciones-push)
-9. [Desplegar en Vercel](#desplegar-en-vercel)
-10. [Diferencias local vs producción](#diferencias-local-vs-producción)
-11. [Scripts útiles](#scripts-útiles)
+8. [Configurar correos de invitación (Fastmail SMTP)](#configurar-correos-de-invitación-fastmail-smtp)
+9. [Configurar notificaciones push](#configurar-notificaciones-push)
+10. [Desplegar en Vercel](#desplegar-en-vercel)
+11. [Diferencias local vs producción](#diferencias-local-vs-producción)
+12. [Scripts útiles](#scripts-útiles)
 
 ---
 
@@ -27,6 +28,7 @@ PWA de gastos compartidos construida con Next.js 16 + Supabase.
 | Framework       | Next.js 16 (App Router, Turbopack en dev)         |
 | Base de datos   | Supabase (PostgreSQL + Auth + Realtime + Storage) |
 | Auth            | Magic Link · Passkeys (WebAuthn)                  |
+| Email           | SMTP vía Fastmail (correos de invitación)         |
 | PWA             | next-pwa v5 (Workbox)                             |
 | Push            | Web Push API + VAPID                              |
 | Estilos         | CSS Modules                                       |
@@ -71,6 +73,7 @@ Instala esto en tu máquina antes de empezar:
 - **pnpm** — gestor de paquetes: `npm install -g pnpm`
 - **Cuenta en Supabase** (gratuita) — [supabase.com](https://supabase.com)
 - **Cuenta en Vercel** (gratuita, solo para deploy) — [vercel.com](https://vercel.com)
+- **Cuenta en Fastmail** (o cualquier proveedor con SMTP) — para enviar correos de invitación
 
 ---
 
@@ -146,6 +149,17 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=BF...
 # Genera un string aleatorio largo, por ejemplo:
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 PUSH_WEBHOOK_SECRET=un_secreto_largo_aleatorio
+
+# ── SMTP (correos de invitación) ──────────────────────────────────────────
+# Fastmail: genera una contraseña de app en:
+#   fastmail.com → Settings → Privacy & Security → App Passwords
+# (usa una contraseña de app, NO tu contraseña principal de Fastmail)
+SMTP_HOST=smtp.fastmail.com
+SMTP_PORT=465
+SMTP_USER=tu@fastmail.com
+SMTP_PASS=tu_app_password_de_fastmail
+# Nombre y dirección que verá el destinatario en el campo "De:"
+SMTP_FROM=SpendLab <tu@fastmail.com>
 
 # ── Solo en desarrollo ────────────────────────────────────────────────────
 # Descomenta esta línea para habilitar login con contraseña en local
@@ -260,13 +274,73 @@ Esta es la parte más importante a entender antes de hacer deploy:
 
 El `WEBAUTHN_RP_ID` debe ser **solo el dominio, sin `https://` ni rutas**:
 
-| Entorno        | Valor correcto      |
-|----------------|---------------------|
-| Local          | `localhost`         |
-| Vercel         | `tu-app.vercel.app` |
-| Dominio propio | `tuapp.com`         |
+| Entorno        | Valor correcto              |
+|----------------|-----------------------------|
+| Local          | `localhost`                 |
+| Producción     | `spendlab.chrisdevcl.com`   |
 
 Si pones la URL completa (`https://tu-app.vercel.app`) el registro de passkeys fallará.
+
+---
+
+## Configurar correos de invitación (Fastmail SMTP)
+
+Cuando un usuario invita a alguien a un grupo, la app envía automáticamente un correo con un enlace que pre-llena el correo del invitado en la pantalla de login. Si el invitado aún no tiene cuenta, se crea en el momento en que se autentica con passkey o magic link.
+
+> Los correos se envían de forma asíncrona (fire-and-forget). Si el SMTP no está configurado o falla, la invitación igual se crea — el correo es una mejora, no un requisito.
+
+### Paso 1 — Agregar tu dominio en Fastmail
+
+Para enviar desde `spendlab@spendlab.chrisdevcl.com` necesitas que Fastmail sepa que ese dominio te pertenece.
+
+**En el navegador → [fastmail.com](https://fastmail.com) → Settings → Domains → Add Domain:**
+
+1. Ingresa `spendlab.chrisdevcl.com`
+2. Fastmail te mostrará los registros DNS que debes agregar. Son estos tipos:
+
+| Tipo  | Host                         | Valor que da Fastmail |
+|-------|------------------------------|-----------------------|
+| MX    | `spendlab.chrisdevcl.com`    | (servidores de Fastmail) |
+| TXT   | `spendlab.chrisdevcl.com`    | Registro SPF          |
+| CNAME | `fm1._domainkey.spendlab...` | Registro DKIM         |
+
+3. Agrega esos registros **donde tengas el DNS de `chrisdevcl.com`** (en tu registrador de dominio o en Fastmail si gestionas el DNS ahí)
+4. Espera la verificación (puede tardar unos minutos o hasta 24h)
+
+> **¿Solo necesitas enviar, no recibir?** No es obligatorio agregar el registro MX si no quieres recibir correo en ese subdominio. Los registros SPF y DKIM son suficientes para que los correos salientes no caigan en spam.
+
+### Paso 2 — Crear la dirección en Fastmail
+
+Una vez verificado el dominio:
+
+**En Fastmail → Settings → Aliases → Add Alias:**
+
+1. Crea la dirección `spendlab@spendlab.chrisdevcl.com`
+2. Apúntala a tu cuenta Fastmail principal
+
+### Paso 3 — Crear una contraseña de app
+
+Fastmail no permite usar tu contraseña principal para SMTP. Crea una **contraseña de app** específica:
+
+**En Fastmail → Settings → Privacy & Security → App Passwords:**
+
+1. Haz clic en **New App Password**
+2. Dale un nombre (ej. `SpendLab`)
+3. Copia el password — solo se muestra una vez
+
+### Paso 4 — Completar las variables SMTP
+
+En tú `.env.local`:
+
+```bash
+SMTP_HOST=smtp.fastmail.com
+SMTP_PORT=465
+SMTP_USER=tu@fastmail.com                          # tu usuario Fastmail principal (no cambia)
+SMTP_PASS=xxxx xxxx xxxx xxxx                      # la contraseña de app
+SMTP_FROM=SpendLab <spendlab@spendlab.chrisdevcl.com>
+```
+
+> **Importante:** `SMTP_USER` es siempre tu cuenta principal de Fastmail (la que tiene la contraseña de app), aunque el `From:` sea la dirección del dominio personalizado.
 
 ---
 
@@ -354,9 +428,14 @@ Agrega cada variable con el entorno correspondiente (Production / Preview):
 | `NEXT_PUBLIC_SUPABASE_URL`      | Production, Preview | URL de Supabase                            |                           |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview | anon key de Supabase                       |                           |
 | `SUPABASE_SERVICE_ROLE_KEY`     | Production, Preview | service_role key                           | Marcar como **Sensitive** |
-| `WEBAUTHN_RP_ID`                | Production          | Tu dominio real, ej. `spendlab.vercel.app` | Sin `https://` ni `/`     |
-| `NEXT_PUBLIC_APP_URL`           | Production          | `https://spendlab.vercel.app`              | Con `https://`            |
-| `VAPID_SUBJECT`                 | Production, Preview | `mailto:tu@email.com`                      |                           |
+| `WEBAUTHN_RP_ID`                | Production          | `spendlab.chrisdevcl.com`                     | Sin `https://` ni `/`     |
+| `NEXT_PUBLIC_APP_URL`           | Production          | `https://spendlab.chrisdevcl.com`             | Con `https://`            |
+| `SMTP_HOST`                     | Production, Preview | `smtp.fastmail.com`                           |                           |
+| `SMTP_PORT`                     | Production, Preview | `465`                                         |                           |
+| `SMTP_USER`                     | Production, Preview | Tu correo Fastmail principal                  |                           |
+| `SMTP_PASS`                     | Production, Preview | Contraseña de app de Fastmail                 | Marcar como **Sensitive** |
+| `SMTP_FROM`                     | Production, Preview | `SpendLab <spendlab@spendlab.chrisdevcl.com>` |                           |
+| `VAPID_SUBJECT`                 | Production, Preview | `mailto:hola@chrisdevcl.com`                  |                           |
 | `VAPID_PUBLIC_KEY`              | Production, Preview | La Public Key generada                     |                           |
 | `VAPID_PRIVATE_KEY`             | Production, Preview | La Private Key generada                    | Marcar como **Sensitive** |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`  | Production, Preview | Mismo valor que VAPID_PUBLIC_KEY           |                           |
@@ -400,14 +479,15 @@ Si quieres usar tu propio dominio en lugar del `.vercel.app`:
 
 ## Diferencias local vs producción
 
-| Característica           | Local (`.env.local`)    | Producción (Vercel) |
-|--------------------------|-------------------------|---------------------|
-| Login con contraseña     | ✅ Visible               | ❌ Oculto            |
-| Magic link               | ✅                       | ✅                   |
-| Passkeys                 | ✅ (solo en `localhost`) | ✅ (dominio real)    |
-| PWA / Service Worker     | ❌ Desactivado en dev    | ✅                   |
-| Push notifications       | ❌ Sin SW activo         | ✅                   |
-| Realtime de invitaciones | ✅                       | ✅                   |
+| Característica              | Local (`.env.local`)               | Producción (Vercel)              |
+|-----------------------------|-------------------------------------|----------------------------------|
+| Login con contraseña        | ✅ Visible                          | ❌ Oculto                         |
+| Magic link                  | ✅                                  | ✅                                |
+| Passkeys                    | ✅ (solo en `localhost`)            | ✅ (dominio real)                 |
+| Correos de invitación       | ✅ Igual que en producción (Fastmail) | ✅                               |
+| PWA / Service Worker        | ❌ Desactivado en dev               | ✅                                |
+| Push notifications          | ❌ Sin SW activo                    | ✅                                |
+| Realtime de invitaciones    | ✅                                  | ✅                                |
 
 ---
 

@@ -52,7 +52,10 @@ function EnvelopeIcon() {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail]             = useState("");
+  const [email, setEmail]             = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("email") ?? "";
+  });
   const [password, setPassword]       = useState("");
   const [usePassword, setUsePassword] = useState(false);
   const [loginError, setLoginError]   = useState("");
