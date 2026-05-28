@@ -10,7 +10,7 @@ import styles from "./page.module.css";
 const PASSWORD_AUTH_ENABLED =
   process.env.NEXT_PUBLIC_ENABLE_PASSWORD_AUTH === "true";
 
-function FingerprintIcon() {
+function PasskeyIcon() {
   return (
     <svg
       width="20"
@@ -31,15 +31,34 @@ function FingerprintIcon() {
   );
 }
 
+function EnvelopeIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail]           = useState("");
-  const [password, setPassword]     = useState("");
+  const [email, setEmail]             = useState("");
+  const [password, setPassword]       = useState("");
   const [usePassword, setUsePassword] = useState(false);
-  const [loginError, setLoginError] = useState("");
-  const [loading, setLoading]       = useState(false);
+  const [loginError, setLoginError]   = useState("");
+  const [loading, setLoading]         = useState(false);
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
-  const [sent, setSent]             = useState(false);
+  const [sent, setSent]               = useState(false);
   const emailRef    = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
@@ -60,53 +79,99 @@ export default function LoginPage() {
     }
   }, [usePassword]);
 
-  // ── Passkey login ─────────────────────────────────────────────────────────
+  // ── Passkey login / signup ────────────────────────────────────────────────
+  // Handles both cases with one button:
+  //   mode "authenticate" → user has passkeys → sign in
+  //   mode "register"     → no passkeys yet  → create passkey (+ account if new)
   async function handlePasskey() {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      emailRef.current?.focus();
+      return;
+    }
     setLoading(true);
     setLoginError("");
     try {
-      // 1. Get authentication challenge from server
-      const beginRes = await fetch("/api/passkey/auth/begin", { method: "POST" });
-      if (!beginRes.ok) {
-        setLoginError("Error con passkey. Intenta con email.");
-        return;
-      }
-      const options = await beginRes.json();
-
-      // 2. Trigger platform authenticator (Touch ID / Face ID / Windows Hello)
-      //    startAuthentication can throw NotAllowedError (user cancelled)
-      let credential;
-      try {
-        const { startAuthentication } = await import("@simplewebauthn/browser");
-        credential = await startAuthentication({ optionsJSON: options });
-      } catch (err) {
-        // NotAllowedError = user cancelled — show nothing
-        if ((err as Error).name !== "NotAllowedError") {
-          setLoginError("Error con passkey. Intenta con email.");
-        }
-        return;
-      }
-
-      // 3. Verify with server
-      const finishRes = await fetch("/api/passkey/auth/finish", {
+      // 1. Ask server: authenticate or register?
+      const beginRes = await fetch("/api/passkey/auth/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credential),
+        body: JSON.stringify({ email: trimmed }),
       });
-      const data = await finishRes.json();
-      if (!finishRes.ok || data.error) {
-        setLoginError(data.error ?? "Error con passkey. Intenta con email.");
+      if (!beginRes.ok) {
+        const d = await beginRes.json();
+        setLoginError(d.error ?? "Error con passkey. Intenta con magic link.");
         return;
       }
+      const { mode, ...options } = await beginRes.json();
 
-      // 4. Establish Supabase session using the server-generated token
+      let token: string;
+
+      if (mode === "register") {
+        // ── New user or user without passkeys: create a passkey ────────────
+        let credential;
+        try {
+          const { startRegistration } = await import("@simplewebauthn/browser");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          credential = await startRegistration({ optionsJSON: options as any });
+        } catch (err) {
+          const name = (err as Error).name;
+          if (name === "InvalidStateError") {
+            setLoginError("Este dispositivo ya tiene una passkey. Intenta con magic link.");
+          } else if (name !== "NotAllowedError") {
+            setLoginError("Error al crear passkey. Intenta con magic link.");
+          }
+          return;
+        }
+
+        const setupRes = await fetch("/api/passkey/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credential),
+        });
+        const setupData = await setupRes.json();
+        if (!setupRes.ok || setupData.error) {
+          setLoginError(setupData.error ?? "Error al registrar passkey.");
+          return;
+        }
+        token = setupData.token;
+
+      } else {
+        // ── Existing user: authenticate with passkey ───────────────────────
+        let credential;
+        try {
+          const { startAuthentication } = await import("@simplewebauthn/browser");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          credential = await startAuthentication({ optionsJSON: options as any });
+        } catch (err) {
+          // NotAllowedError = user cancelled — show nothing
+          if ((err as Error).name !== "NotAllowedError") {
+            setLoginError("Error con passkey. Intenta con magic link.");
+          }
+          return;
+        }
+
+        const finishRes = await fetch("/api/passkey/auth/finish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credential),
+        });
+        const finishData = await finishRes.json();
+        if (!finishRes.ok || finishData.error) {
+          setLoginError(finishData.error ?? "Error con passkey. Intenta con magic link.");
+          return;
+        }
+        token = finishData.token;
+      }
+
+      // 2. Establish Supabase session with the token from the server
       const supabase = createClient();
       const { error: sessionErr } = await supabase.auth.verifyOtp({
-        token_hash: data.token,
-        type: "email",
+        token_hash: token,
+        type: "magiclink",
       });
       if (sessionErr) {
-        setLoginError("Error con passkey. Intenta con email.");
+        setLoginError("Error al crear sesión. Intenta con magic link.");
         return;
       }
 
@@ -116,7 +181,7 @@ export default function LoginPage() {
     }
   }
 
-  // ── Email / magic-link / password login ───────────────────────────────────
+  // ── Magic link / password login ───────────────────────────────────────────
   async function handleLogin() {
     const trimmed = email.trim();
     if (!trimmed) {
@@ -159,6 +224,8 @@ export default function LoginPage() {
     if (e.key === "Enter") handleLogin();
   }
 
+  const hasEmail = email.trim().length > 0;
+
   return (
     <main className={styles.page}>
       <div className={styles.content}>
@@ -177,26 +244,14 @@ export default function LoginPage() {
           </div>
         ) : (
           <div className={styles.actions}>
-            {/* Passkey button — only if platform authenticator is available */}
-            {passkeyAvailable && (
-              <button
-                className={styles.btnPrimary}
-                onClick={handlePasskey}
-                disabled={loading}
-              >
-                <FingerprintIcon />
-                Continuar con Passkey
-              </button>
-            )}
-
-            {passkeyAvailable && <p className={styles.divider}>o</p>}
-
+            {/* ── Email field ───────────────────────────────────────── */}
             <div className={styles.emailGroup}>
+              <p className={styles.fieldLabel}>Tu correo</p>
               <input
                 ref={emailRef}
                 className={styles.input}
                 type="email"
-                placeholder="Ingresa tu correo"
+                placeholder="hola@correo.cl"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -229,36 +284,55 @@ export default function LoginPage() {
               {loginError && (
                 <p className={styles.fieldError}>{loginError}</p>
               )}
+            </div>
 
+            {/* ── Passkey button — only if platform authenticator available ── */}
+            {passkeyAvailable && (
               <button
-                className={styles.btnSecondary}
-                onClick={handleLogin}
+                className={styles.btnPrimary}
+                onClick={handlePasskey}
                 disabled={loading}
               >
-                {loading
-                  ? "Entrando…"
-                  : usePassword && PASSWORD_AUTH_ENABLED
-                  ? "Iniciar sesión"
-                  : "Continuar con email"}
+                <PasskeyIcon />
+                {loading ? "Verificando…" : "Continuar con Passkey"}
               </button>
+            )}
 
-              {/* Password toggle — only shown when env enables it */}
-              {PASSWORD_AUTH_ENABLED && (
-                <button
-                  className={styles.toggleMode}
-                  onClick={() => {
-                    setUsePassword((p) => !p);
-                    setLoginError("");
-                  }}
-                  disabled={loading}
-                  type="button"
-                >
-                  {usePassword
-                    ? "Usar magic link en su lugar"
-                    : "Usar contraseña en su lugar"}
-                </button>
-              )}
-            </div>
+            {/* ── Magic link / password button ──────────────────────────── */}
+            <button
+              className={styles.btnSecondary}
+              onClick={handleLogin}
+              disabled={loading}
+            >
+              {!loading && <EnvelopeIcon />}
+              {loading
+                ? "Enviando…"
+                : usePassword && PASSWORD_AUTH_ENABLED
+                ? "Iniciar sesión"
+                : "Enviar enlace mágico"}
+            </button>
+
+            {/* ── Hint when no email entered ────────────────────────────── */}
+            {!hasEmail && !loading && (
+              <p className={styles.hint}>Escribe tu correo para continuar.</p>
+            )}
+
+            {/* ── Password toggle — only shown when env enables it ──────── */}
+            {PASSWORD_AUTH_ENABLED && (
+              <button
+                className={styles.toggleMode}
+                onClick={() => {
+                  setUsePassword((p) => !p);
+                  setLoginError("");
+                }}
+                disabled={loading}
+                type="button"
+              >
+                {usePassword
+                  ? "Usar magic link en su lugar"
+                  : "Usar contraseña en su lugar"}
+              </button>
+            )}
           </div>
         )}
       </div>

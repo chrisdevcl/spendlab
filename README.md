@@ -219,6 +219,28 @@ Copia estos valores a tu `.env.local`:
 
 La tabla `passkey_credentials` y todas sus políticas de seguridad ya están incluidas en `supabase/schema.sql`. Al ejecutar el schema en el Paso 2, las passkeys quedan listas. No hay ningún paso adicional en el dashboard de Supabase.
 
+### Cómo funciona el flujo de passkeys
+
+El botón "Continuar con Passkey" maneja automáticamente dos situaciones:
+
+**Primera vez (cuenta nueva o sin passkeys):**
+```
+1. Escribe tu correo → "Continuar con Passkey"
+2. El navegador pregunta: "¿Guardar una passkey para SpendLab?"
+3. Biometría → cuenta creada + passkey guardada + sesión iniciada
+```
+
+**Veces siguientes (ya tienes passkey para ese dominio):**
+```
+1. Escribe tu correo → "Continuar con Passkey"
+2. El navegador pregunta: "¿Usar tu passkey para SpendLab?"
+3. Biometría → sesión iniciada
+```
+
+No se necesita contraseña ni magic link previo. El servidor detecta si el correo ya tiene passkeys registradas y muestra el flujo correcto.
+
+> **Agregar passkeys a otros dispositivos:** una vez dentro de la app, ve a Perfil → "Registrar passkey" para añadir la biometría de ese dispositivo a tu cuenta existente.
+
 ### Las passkeys están atadas al dominio
 
 Esta es la parte más importante a entender antes de hacer deploy:
@@ -430,10 +452,11 @@ src/
       profile/             # Perfil + registro de passkey
     api/
       passkey/
-        register/begin/    # POST: inicia registro WebAuthn
-        register/finish/   # POST: verifica y guarda la passkey
-        auth/begin/        # POST: inicia autenticación WebAuthn
-        auth/finish/       # POST: verifica la firma y crea sesión
+        register/begin/    # POST: inicia registro WebAuthn (desde Perfil)
+        register/finish/   # POST: verifica y guarda la passkey (desde Perfil)
+        auth/begin/        # POST: devuelve opciones (mode: authenticate | register)
+        auth/finish/       # POST: verifica firma y crea sesión (usuario existente)
+        auth/setup/        # POST: registra passkey + crea cuenta + sesión (usuario nuevo)
       push/
         subscribe/         # POST: guarda la suscripción push del navegador
         send/              # POST: webhook de Supabase, envía la notificación
