@@ -12,10 +12,11 @@ PWA de gastos compartidos construida con Next.js 16 + Supabase.
 4. [Levantar en local](#levantar-en-local)
 5. [Variables de entorno](#variables-de-entorno)
 6. [Configurar Supabase](#configurar-supabase)
-7. [Configurar notificaciones push](#configurar-notificaciones-push)
-8. [Desplegar en Vercel](#desplegar-en-vercel)
-9. [Diferencias local vs producción](#diferencias-local-vs-producción)
-10. [Scripts útiles](#scripts-útiles)
+7. [Passkeys — puntos importantes](#passkeys--puntos-importantes)
+8. [Configurar notificaciones push](#configurar-notificaciones-push)
+9. [Desplegar en Vercel](#desplegar-en-vercel)
+10. [Diferencias local vs producción](#diferencias-local-vs-producción)
+11. [Scripts útiles](#scripts-útiles)
 
 ---
 
@@ -182,16 +183,21 @@ En la sección **Tables**, activa el toggle de la tabla `group_invitations`.
 
 Esto permite que la pantalla de Grupos se actualice automáticamente cuando alguien invita al usuario, sin necesidad de recargar la página.
 
-### Paso 4 — Configurar Auth
+### Paso 4 — Configurar Auth (importante: URL del email de verificación)
 
 **En el navegador → Supabase Dashboard → Authentication → URL Configuration:**
 
-| Campo         | Valor en local                        | Valor en producción                       |
-|---------------|---------------------------------------|-------------------------------------------|
-| Site URL      | `http://localhost:3741`               | `https://tu-app.vercel.app`               |
-| Redirect URLs | `http://localhost:3741/auth/callback` | `https://tu-app.vercel.app/auth/callback` |
+| Campo             | Qué poner                                                                      |
+|-------------------|--------------------------------------------------------------------------------|
+| **Site URL**      | `https://tu-app.vercel.app` (la URL de producción)                             |
+| **Redirect URLs** | `https://tu-app.vercel.app/auth/callback, http://localhost:3741/auth/callback` |
 
-Puedes agregar ambas URLs a la vez en Redirect URLs separándolas por comas.
+Agrega **ambas URLs** en el campo Redirect URLs separadas por coma.
+
+> **¿Por qué el email trae un enlace a localhost?**
+> La app le dice a Supabase a dónde redirigir después del login, y en desarrollo esa dirección es `http://localhost:3741/auth/callback`. En producción será la URL de Vercel automáticamente — el código no necesita tocarse.
+>
+> El error ocurre cuando Supabase rechaza el redirect porque la URL no está en su lista blanca. La solución es agregar las dos URLs a **Redirect URLs** como se muestra arriba. Una vez hecho, el email en producción llevará a tu app en Vercel y en local a localhost, según desde dónde se haya iniciado sesión.
 
 ### Paso 5 — Obtener las credenciales
 
@@ -204,6 +210,41 @@ Copia estos valores a tu `.env.local`:
 | `NEXT_PUBLIC_SUPABASE_URL`      | Project URL       |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon / public key |
 | `SUPABASE_SERVICE_ROLE_KEY`     | service_role key  |
+
+---
+
+## Passkeys — puntos importantes
+
+### No necesitas configurar nada extra en Supabase
+
+La tabla `passkey_credentials` y todas sus políticas de seguridad ya están incluidas en `supabase/schema.sql`. Al ejecutar el schema en el Paso 2, las passkeys quedan listas. No hay ningún paso adicional en el dashboard de Supabase.
+
+### Las passkeys están atadas al dominio
+
+Esta es la parte más importante a entender antes de hacer deploy:
+
+**Las passkeys están vinculadas al dominio exacto donde se registraron.** Una passkey registrada en `localhost` no funcionará en `tu-app.vercel.app`, y viceversa. Son dos mundos completamente separados — no hay migración posible, es una limitación del estándar WebAuthn.
+
+| Situación                                        | ¿Qué pasa con las passkeys?                                                                               |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Local → primer deploy en Vercel                  | Las de `localhost` no sirven en producción. Normal y esperado.                                            |
+| `tu-app.vercel.app` → dominio propio `tuapp.com` | Las passkeys de `.vercel.app` dejan de funcionar. Los usuarios deben registrar una nueva desde su perfil. |
+| Nuevo deploy de código, misma URL                | No afecta nada. El dominio no cambió.                                                                     |
+| Preview deployments de Vercel                    | URL distinta = passkeys separadas. Siempre distintas a producción.                                        |
+
+**La regla práctica:** elige tu dominio definitivo antes de que los usuarios registren passkeys. Si cambias de dominio después, tendrás que avisarles que registren su passkey de nuevo desde la pantalla de Perfil.
+
+### Cómo afecta a las variables de entorno
+
+El `WEBAUTHN_RP_ID` debe ser **solo el dominio, sin `https://` ni rutas**:
+
+| Entorno        | Valor correcto      |
+|----------------|---------------------|
+| Local          | `localhost`         |
+| Vercel         | `tu-app.vercel.app` |
+| Dominio propio | `tuapp.com`         |
+
+Si pones la URL completa (`https://tu-app.vercel.app`) el registro de passkeys fallará.
 
 ---
 
