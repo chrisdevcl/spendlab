@@ -289,36 +289,7 @@ Cuando un usuario invita a alguien a un grupo, la app envía automáticamente un
 
 > Los correos se envían de forma asíncrona (fire-and-forget). Si el SMTP no está configurado o falla, la invitación igual se crea — el correo es una mejora, no un requisito.
 
-### Paso 1 — Agregar tu dominio en Fastmail
-
-Para enviar desde `spendlab@spendlab.chrisdevcl.com` necesitas que Fastmail sepa que ese dominio te pertenece.
-
-**En el navegador → [fastmail.com](https://fastmail.com) → Settings → Domains → Add Domain:**
-
-1. Ingresa `spendlab.chrisdevcl.com`
-2. Fastmail te mostrará los registros DNS que debes agregar. Son estos tipos:
-
-| Tipo  | Host                         | Valor que da Fastmail |
-|-------|------------------------------|-----------------------|
-| MX    | `spendlab.chrisdevcl.com`    | (servidores de Fastmail) |
-| TXT   | `spendlab.chrisdevcl.com`    | Registro SPF          |
-| CNAME | `fm1._domainkey.spendlab...` | Registro DKIM         |
-
-3. Agrega esos registros **donde tengas el DNS de `chrisdevcl.com`** (en tu registrador de dominio o en Fastmail si gestionas el DNS ahí)
-4. Espera la verificación (puede tardar unos minutos o hasta 24h)
-
-> **¿Solo necesitas enviar, no recibir?** No es obligatorio agregar el registro MX si no quieres recibir correo en ese subdominio. Los registros SPF y DKIM son suficientes para que los correos salientes no caigan en spam.
-
-### Paso 2 — Crear la dirección en Fastmail
-
-Una vez verificado el dominio:
-
-**En Fastmail → Settings → Aliases → Add Alias:**
-
-1. Crea la dirección `spendlab@spendlab.chrisdevcl.com`
-2. Apúntala a tu cuenta Fastmail principal
-
-### Paso 3 — Crear una contraseña de app
+### Paso 1 — Crear una contraseña de app en Fastmail
 
 Fastmail no permite usar tu contraseña principal para SMTP. Crea una **contraseña de app** específica:
 
@@ -328,19 +299,17 @@ Fastmail no permite usar tu contraseña principal para SMTP. Crea una **contrase
 2. Dale un nombre (ej. `SpendLab`)
 3. Copia el password — solo se muestra una vez
 
-### Paso 4 — Completar las variables SMTP
+### Paso 2 — Completar las variables SMTP
 
-En tú `.env.local`:
+En tu `.env.local`:
 
 ```bash
 SMTP_HOST=smtp.fastmail.com
 SMTP_PORT=465
-SMTP_USER=tu@fastmail.com                          # tu usuario Fastmail principal (no cambia)
-SMTP_PASS=xxxx xxxx xxxx xxxx                      # la contraseña de app
-SMTP_FROM=SpendLab <spendlab@spendlab.chrisdevcl.com>
+SMTP_USER=chris.tools@fastmail.com      # tu cuenta Fastmail principal
+SMTP_PASS=xxxx xxxx xxxx xxxx          # la contraseña de app
+SMTP_FROM=SpendLab <spendlab@chrisdevcl.com>
 ```
-
-> **Importante:** `SMTP_USER` es siempre tu cuenta principal de Fastmail (la que tiene la contraseña de app), aunque el `From:` sea la dirección del dominio personalizado.
 
 ---
 
@@ -423,23 +392,23 @@ Usuario A invita a B
 
 Agrega cada variable con el entorno correspondiente (Production / Preview):
 
-| Variable                        | Entorno             | Valor                                      | Notas                     |
-|---------------------------------|---------------------|--------------------------------------------|---------------------------|
-| `NEXT_PUBLIC_SUPABASE_URL`      | Production, Preview | URL de Supabase                            |                           |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview | anon key de Supabase                       |                           |
-| `SUPABASE_SERVICE_ROLE_KEY`     | Production, Preview | service_role key                           | Marcar como **Sensitive** |
+| Variable                        | Entorno             | Valor                                         | Notas                     |
+|---------------------------------|---------------------|-----------------------------------------------|---------------------------|
+| `NEXT_PUBLIC_SUPABASE_URL`      | Production, Preview | URL de Supabase                               |                           |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview | anon key de Supabase                          |                           |
+| `SUPABASE_SERVICE_ROLE_KEY`     | Production, Preview | service_role key                              | Marcar como **Sensitive** |
 | `WEBAUTHN_RP_ID`                | Production          | `spendlab.chrisdevcl.com`                     | Sin `https://` ni `/`     |
 | `NEXT_PUBLIC_APP_URL`           | Production          | `https://spendlab.chrisdevcl.com`             | Con `https://`            |
 | `SMTP_HOST`                     | Production, Preview | `smtp.fastmail.com`                           |                           |
 | `SMTP_PORT`                     | Production, Preview | `465`                                         |                           |
-| `SMTP_USER`                     | Production, Preview | Tu correo Fastmail principal                  |                           |
+| `SMTP_USER`                     | Production, Preview |                                               |                           |
 | `SMTP_PASS`                     | Production, Preview | Contraseña de app de Fastmail                 | Marcar como **Sensitive** |
 | `SMTP_FROM`                     | Production, Preview | `SpendLab <spendlab@spendlab.chrisdevcl.com>` |                           |
-| `VAPID_SUBJECT`                 | Production, Preview | `mailto:hola@chrisdevcl.com`                  |                           |
-| `VAPID_PUBLIC_KEY`              | Production, Preview | La Public Key generada                     |                           |
-| `VAPID_PRIVATE_KEY`             | Production, Preview | La Private Key generada                    | Marcar como **Sensitive** |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`  | Production, Preview | Mismo valor que VAPID_PUBLIC_KEY           |                           |
-| `PUSH_WEBHOOK_SECRET`           | Production, Preview | El secreto que generaste                   | Marcar como **Sensitive** |
+| `VAPID_SUBJECT`                 | Production, Preview | `mailto:spendlab@spendlab.chrisdevcl.com`     |                           |
+| `VAPID_PUBLIC_KEY`              | Production, Preview | La Public Key generada                        |                           |
+| `VAPID_PRIVATE_KEY`             | Production, Preview | La Private Key generada                       | Marcar como **Sensitive** |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`  | Production, Preview | Mismo valor que VAPID_PUBLIC_KEY              |                           |
+| `PUSH_WEBHOOK_SECRET`           | Production, Preview | El secreto que generaste                      | Marcar como **Sensitive** |
 
 > **NO agregues** `NEXT_PUBLIC_ENABLE_PASSWORD_AUTH` en Vercel. Al no estar definida, el login con contraseña queda oculto automáticamente en producción.
 
