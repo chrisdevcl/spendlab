@@ -93,45 +93,53 @@ export default function ProfileView({ profile, stats }: Props) {
   function handlePasskey() {
     setPasskeyError(false);
     startPasskeyTransition(async () => {
+      // 1. Get registration options from server
+      const beginRes = await fetch("/api/passkey/register/begin", { method: "POST" });
+      if (!beginRes.ok) {
+        const d = await beginRes.json().catch(() => ({}));
+        setPasskeyMsg(d.error ?? "Error al registrar passkey");
+        setPasskeyError(true);
+        setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        return;
+      }
+      const options = await beginRes.json();
+
+      // 2. Trigger platform authenticator
+      //    startRegistration can throw InvalidStateError or NotAllowedError
+      let credential;
       try {
-        // 1. Get registration options from server
-        const beginRes = await fetch("/api/passkey/register/begin", {
-          method: "POST",
-        });
-        if (!beginRes.ok) {
-          const d = await beginRes.json().catch(() => ({}));
-          throw new Error(d.error ?? "Error al iniciar registro");
-        }
-        const options = await beginRes.json();
-
-        // 2. Trigger platform authenticator
         const { startRegistration } = await import("@simplewebauthn/browser");
-        const credential = await startRegistration({ optionsJSON: options });
-
-        // 3. Verify with server and persist
-        const finishRes = await fetch("/api/passkey/register/finish", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(credential),
-        });
-        const data = await finishRes.json();
-        if (!finishRes.ok || data.error) throw new Error(data.error ?? "Error");
-
-        setPasskeyMsg("Passkey registrada correctamente");
-        setTimeout(() => setPasskeyMsg(""), 4000);
+        credential = await startRegistration({ optionsJSON: options });
       } catch (err) {
         const name = (err as Error).name;
         if (name === "InvalidStateError") {
           setPasskeyMsg("Este dispositivo ya tiene una passkey registrada");
-          setPasskeyError(false);
-        } else if (name === "NotAllowedError") {
-          // User cancelled — show nothing
-        } else {
+          setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        } else if (name !== "NotAllowedError") {
+          // NotAllowedError = user cancelled — show nothing
           setPasskeyMsg("Error al registrar passkey");
           setPasskeyError(true);
+          setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
         }
-        setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        return;
       }
+
+      // 3. Verify with server and persist
+      const finishRes = await fetch("/api/passkey/register/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credential),
+      });
+      const data = await finishRes.json();
+      if (!finishRes.ok || data.error) {
+        setPasskeyMsg(data.error ?? "Error al registrar passkey");
+        setPasskeyError(true);
+        setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        return;
+      }
+
+      setPasskeyMsg("Passkey registrada correctamente");
+      setTimeout(() => setPasskeyMsg(""), 4000);
     });
   }
 

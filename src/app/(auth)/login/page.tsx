@@ -66,17 +66,26 @@ export default function LoginPage() {
     setLoginError("");
     try {
       // 1. Get authentication challenge from server
-      const beginRes = await fetch("/api/passkey/auth/begin", {
-        method: "POST",
-      });
-      if (!beginRes.ok) throw new Error("Error al iniciar passkey");
+      const beginRes = await fetch("/api/passkey/auth/begin", { method: "POST" });
+      if (!beginRes.ok) {
+        setLoginError("Error con passkey. Intenta con email.");
+        return;
+      }
       const options = await beginRes.json();
 
       // 2. Trigger platform authenticator (Touch ID / Face ID / Windows Hello)
-      const { startAuthentication } = await import(
-        "@simplewebauthn/browser"
-      );
-      const credential = await startAuthentication({ optionsJSON: options });
+      //    startAuthentication can throw NotAllowedError (user cancelled)
+      let credential;
+      try {
+        const { startAuthentication } = await import("@simplewebauthn/browser");
+        credential = await startAuthentication({ optionsJSON: options });
+      } catch (err) {
+        // NotAllowedError = user cancelled — show nothing
+        if ((err as Error).name !== "NotAllowedError") {
+          setLoginError("Error con passkey. Intenta con email.");
+        }
+        return;
+      }
 
       // 3. Verify with server
       const finishRes = await fetch("/api/passkey/auth/finish", {
@@ -85,7 +94,10 @@ export default function LoginPage() {
         body: JSON.stringify(credential),
       });
       const data = await finishRes.json();
-      if (!finishRes.ok || data.error) throw new Error(data.error ?? "Error");
+      if (!finishRes.ok || data.error) {
+        setLoginError(data.error ?? "Error con passkey. Intenta con email.");
+        return;
+      }
 
       // 4. Establish Supabase session using the server-generated token
       const supabase = createClient();
@@ -93,15 +105,12 @@ export default function LoginPage() {
         token_hash: data.token,
         type: "email",
       });
-      if (sessionErr) throw sessionErr;
+      if (sessionErr) {
+        setLoginError("Error con passkey. Intenta con email.");
+        return;
+      }
 
       router.push("/groups");
-    } catch (err) {
-      const name = (err as Error).name;
-      // NotAllowedError = user cancelled — don't show an error
-      if (name !== "NotAllowedError") {
-        setLoginError("Error con passkey. Intenta con email.");
-      }
     } finally {
       setLoading(false);
     }
