@@ -31,6 +31,11 @@
 }
 .iconBtn:active { opacity: 0.6; }
 
+.iconBtnDanger {
+  composes: iconBtn;
+  color: var(--color-negative);
+}
+
 .headerTitle {
   font-size: 1.0625rem;
   font-weight: 700;
@@ -352,3 +357,19 @@
 }
 .btnConfirm:hover { opacity: 0.88; }
 .btnConfirm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btnDanger {
+  flex: 1;
+  padding: 1rem;
+  background: var(--color-negative);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btnDanger:hover { opacity: 0.88; }
+.btnDanger:disabled { opacity: 0.45; cursor: not-allowed; }

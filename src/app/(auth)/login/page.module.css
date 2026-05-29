@@ -1,3 +1,29 @@
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* White spinner — for primary (teal) button */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Muted spinner — for secondary (outlined) button */
+.spinnerMuted {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-text-muted);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
 .page {
   display: flex;
   flex-direction: column;

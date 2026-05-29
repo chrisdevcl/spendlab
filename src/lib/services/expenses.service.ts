@@ -360,3 +360,21 @@ export async function createSettlement(
     return null;
   }
 }
+
+export async function deleteExpense(expenseId: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("expenses")
+      .delete()
+      .eq("id", expenseId);
+    if (error) {
+      console.error("[deleteExpense] error:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[deleteExpense] unexpected error:", err);
+    return false;
+  }
+}

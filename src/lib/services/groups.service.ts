@@ -270,3 +270,21 @@ export async function acceptInvitation(
     return false;
   }
 }
+
+export async function deleteGroup(groupId: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("groups")
+      .delete()
+      .eq("id", groupId);
+    if (error) {
+      console.error("[deleteGroup] error:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[deleteGroup] unexpected error:", err);
+    return false;
+  }
+}

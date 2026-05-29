@@ -296,7 +296,9 @@ export default function LoginPage() {
                 onClick={handlePasskey}
                 disabled={loading}
               >
-                <PasskeyIcon />
+                {loading
+                  ? <span className={styles.spinner} />
+                  : <PasskeyIcon />}
                 {loading ? "Verificando…" : "Continuar con Passkey"}
               </button>
             )}
@@ -307,7 +309,9 @@ export default function LoginPage() {
               onClick={handleLogin}
               disabled={loading}
             >
-              {!loading && <EnvelopeIcon />}
+              {loading
+                ? <span className={styles.spinnerMuted} />
+                : <EnvelopeIcon />}
               {loading
                 ? "Enviando…"
                 : usePassword && PASSWORD_AUTH_ENABLED

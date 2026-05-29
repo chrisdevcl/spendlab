@@ -12,7 +12,7 @@ import Link from "next/link";
 import type { GroupWithMembers, ExpenseWithDetails, GlobalBalance } from "@/types";
 import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import { createSettlement, inviteMemberToGroup } from "../actions";
+import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
 interface Props {
@@ -166,6 +166,17 @@ export default function GroupDetail({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [inviteOpen, closeInvite]);
+
+  // ── Delete group ───────────────────────────────────────────────────────────
+  const [deleteGroupOpen, setDeleteGroupOpen] = useState(false);
+  const [isPendingDeleteGroup, startDeleteGroupTransition] = useTransition();
+
+  function handleDeleteGroup() {
+    startDeleteGroupTransition(async () => {
+      await deleteGroupAction(group.id);
+      router.replace("/groups");
+    });
+  }
 
   // ── Balance computed values ─────────────────────────────────────────────────
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
@@ -354,7 +365,54 @@ export default function GroupDetail({
             </div>
           )}
         </section>
+
+        {/* ── Danger zone — only for group creator ──────────────────────── */}
+        {group.created_by === userId && (
+          <div className={styles.dangerSection}>
+            <button
+              className={styles.btnDeleteGroup}
+              onClick={() => setDeleteGroupOpen(true)}
+            >
+              Eliminar grupo
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ── Delete group modal ───────────────────────────────────────────── */}
+      {deleteGroupOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={() => { if (!isPendingDeleteGroup) setDeleteGroupOpen(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Eliminar grupo"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.modalTitle}>¿Eliminar grupo?</p>
+            <p className={styles.modalSub}>
+              Se eliminarán todos los gastos y datos de &ldquo;{group.name}&rdquo;.
+              Esta acción no se puede deshacer.
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnCancel}
+                onClick={() => setDeleteGroupOpen(false)}
+                disabled={isPendingDeleteGroup}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={handleDeleteGroup}
+                disabled={isPendingDeleteGroup}
+              >
+                {isPendingDeleteGroup ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Settlement modal ─────────────────────────────────────────────── */}
       {settlementTarget && (

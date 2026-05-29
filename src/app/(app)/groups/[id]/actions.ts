@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createSettlement as createSettlementService } from "@/lib/services/expenses.service";
-import { inviteMember as inviteMemberService } from "@/lib/services/groups.service";
+import {
+  inviteMember as inviteMemberService,
+  deleteGroup as deleteGroupService,
+} from "@/lib/services/groups.service";
 import { sendInvitationEmail } from "@/lib/email/invitation";
 
 export async function createSettlement(
@@ -72,5 +75,23 @@ export async function inviteMemberToGroup(
   }
 
   revalidatePath(`/groups/${groupId}`);
+  return {};
+}
+
+export async function deleteGroup(
+  groupId: string
+): Promise<{ error?: string }> {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return {};
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const ok = await deleteGroupService(groupId);
+  if (!ok) return { error: "Error al eliminar el grupo. Intenta de nuevo." };
+
+  revalidatePath("/groups");
   return {};
 }

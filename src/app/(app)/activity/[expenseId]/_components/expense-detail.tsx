@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import type { ExpenseWithDetails } from "@/types";
 import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import { createSettlementFromExpense } from "../actions";
+import { createSettlementFromExpense, deleteExpense as deleteExpenseAction } from "../actions";
 import styles from "./expense-detail.module.css";
 
 interface Props {
@@ -74,6 +74,22 @@ export default function ExpenseDetail({
     userHasDebt && mySplit
       ? mySplit.amount - settledAmount(settlements, userId, payerId)
       : 0;
+
+  // ── Delete expense ─────────────────────────────────────────────────────────
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isPendingDelete, startDeleteTransition] = useTransition();
+
+  const closeDelete = useCallback(() => {
+    if (isPendingDelete) return;
+    setDeleteOpen(false);
+  }, [isPendingDelete]);
+
+  function handleDelete() {
+    startDeleteTransition(async () => {
+      await deleteExpenseAction(expense.id, expense.group_id);
+      router.replace(`/groups/${expense.group_id}`);
+    });
+  }
 
   // ── Settlement modal ────────────────────────────────────────────────────────
   const [settleOpen, setSettleOpen] = useState(false);
@@ -150,7 +166,21 @@ export default function ExpenseDetail({
           </svg>
         </button>
         <span className={styles.headerTitle}>Detalle de gasto</span>
-        <div style={{ width: 38 }} />
+        {expense.paid_by === userId ? (
+          <button
+            className={styles.iconBtnDanger}
+            onClick={() => setDeleteOpen(true)}
+            aria-label="Eliminar gasto"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M3 5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M7 5V3h4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 5l.75 10.5h6.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : (
+          <div style={{ width: 38 }} />
+        )}
       </header>
 
       <div className={styles.content}>
@@ -248,6 +278,41 @@ export default function ExpenseDetail({
           >
             Registrar pago a {payerName.split(" ")[0]}
           </button>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal ────────────────────────────────────── */}
+      {deleteOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={closeDelete}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Eliminar gasto"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.modalTitle}>¿Eliminar gasto?</p>
+            <p className={styles.modalSub}>
+              Se eliminará &ldquo;{expense.description}&rdquo; ({formatCLP(expense.amount)}).
+              Esta acción no se puede deshacer.
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnCancel}
+                onClick={closeDelete}
+                disabled={isPendingDelete}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={handleDelete}
+                disabled={isPendingDelete}
+              >
+                {isPendingDelete ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
