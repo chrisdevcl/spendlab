@@ -33,7 +33,7 @@ function formatRelativeDate(dateStr: string): string {
   const diffDays = Math.floor(
     (Date.now() - date.getTime()) / 86_400_000
   );
-  if (diffDays === 0) return "Hoy";
+  if (diffDays <= 0) return "Hoy"; // also handles future dates (timezone edge cases)
   if (diffDays === 1) return "Ayer";
   if (diffDays < 7) return `Hace ${diffDays} días`;
   return date.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
@@ -335,10 +335,7 @@ export default function GroupDetail({
                                 const myShare = expense.splits.find(
                                     (s) => s.user_id === userId
                                 )?.amount;
-                                const payerName =
-                                    expense.paid_by === userId
-                                        ? "Tú"
-                                        : firstWord(expense.payer?.display_name ?? "");
+                                const payerName = firstWord(expense.payer?.display_name ?? "");
                                 return (
                                     <Link
                                         key={expense.id}

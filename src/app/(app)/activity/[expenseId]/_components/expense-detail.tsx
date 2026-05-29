@@ -219,9 +219,6 @@ export default function ExpenseDetail({
             {expense.splits.map((split) => {
               const name = split.profile?.display_name ?? split.user_id;
               const isPayer = split.user_id === payerId;
-              const isMe = split.user_id === userId;
-
-              // Determine debt status for this split participant
               let settled: boolean;
               if (isPayer) {
                 settled = true; // payer always "settled" for their own share
@@ -237,7 +234,7 @@ export default function ExpenseDetail({
                   </div>
                   <div className={styles.splitInfo}>
                     <p className={styles.splitName}>
-                      {isMe ? "Tú" : name.split(" ")[0]}
+                      {name.split(" ")[0]}
                       {isPayer && (
                         <span className={styles.payerTag}> · Pagó</span>
                       )}
