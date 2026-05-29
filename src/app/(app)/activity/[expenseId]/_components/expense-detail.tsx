@@ -87,6 +87,8 @@ export default function ExpenseDetail({
   function handleDelete() {
     startDeleteTransition(async () => {
       await deleteExpenseAction(expense.id, expense.group_id);
+      // refresh forces a full server re-fetch so balances are recalculated
+      router.refresh();
       router.replace(`/groups/${expense.group_id}`);
     });
   }
@@ -296,6 +298,11 @@ export default function ExpenseDetail({
               Se eliminará &ldquo;{expense.description}&rdquo; ({formatCLP(expense.amount)}).
               Esta acción no se puede deshacer.
             </p>
+            {settlements.length > 0 && (
+              <p className={styles.modalWarn}>
+                ⚠️ Este grupo tiene pagos registrados. Al eliminar el gasto los saldos se recalcularán — revisa que las deudas queden correctas antes de registrar nuevos pagos.
+              </p>
+            )}
             <div className={styles.modalActions}>
               <button
                 className={styles.btnCancel}

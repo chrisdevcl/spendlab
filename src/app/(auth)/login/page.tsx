@@ -58,9 +58,11 @@ export default function LoginPage() {
   });
   const [password, setPassword]       = useState("");
   const [usePassword, setUsePassword] = useState(false);
-  const [loginError, setLoginError]   = useState("");
-  const [loading, setLoading]         = useState(false);
+  const [loginError, setLoginError]       = useState("");
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [linkLoading, setLinkLoading]     = useState(false);
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  const anyLoading = passkeyLoading || linkLoading;
   const [sent, setSent]               = useState(false);
   const emailRef    = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -92,7 +94,7 @@ export default function LoginPage() {
       emailRef.current?.focus();
       return;
     }
-    setLoading(true);
+    setPasskeyLoading(true);
     setLoginError("");
     try {
       // 1. Ask server: authenticate or register?
@@ -104,6 +106,7 @@ export default function LoginPage() {
       if (!beginRes.ok) {
         const d = await beginRes.json();
         setLoginError(d.error ?? "Error con passkey. Intenta con magic link.");
+        setPasskeyLoading(false);
         return;
       }
       const { mode, ...options } = await beginRes.json();
@@ -111,7 +114,6 @@ export default function LoginPage() {
       let token: string;
 
       if (mode === "register") {
-        // ── New user or user without passkeys: create a passkey ────────────
         let credential;
         try {
           const { startRegistration } = await import("@simplewebauthn/browser");
@@ -124,6 +126,7 @@ export default function LoginPage() {
           } else if (name !== "NotAllowedError") {
             setLoginError("Error al crear passkey. Intenta con magic link.");
           }
+          setPasskeyLoading(false);
           return;
         }
 
@@ -135,22 +138,22 @@ export default function LoginPage() {
         const setupData = await setupRes.json();
         if (!setupRes.ok || setupData.error) {
           setLoginError(setupData.error ?? "Error al registrar passkey.");
+          setPasskeyLoading(false);
           return;
         }
         token = setupData.token;
 
       } else {
-        // ── Existing user: authenticate with passkey ───────────────────────
         let credential;
         try {
           const { startAuthentication } = await import("@simplewebauthn/browser");
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           credential = await startAuthentication({ optionsJSON: options as any });
         } catch (err) {
-          // NotAllowedError = user cancelled — show nothing
           if ((err as Error).name !== "NotAllowedError") {
             setLoginError("Error con passkey. Intenta con magic link.");
           }
+          setPasskeyLoading(false);
           return;
         }
 
@@ -162,12 +165,12 @@ export default function LoginPage() {
         const finishData = await finishRes.json();
         if (!finishRes.ok || finishData.error) {
           setLoginError(finishData.error ?? "Error con passkey. Intenta con magic link.");
+          setPasskeyLoading(false);
           return;
         }
         token = finishData.token;
       }
 
-      // 2. Establish Supabase session with the token from the server
       const supabase = createClient();
       const { error: sessionErr } = await supabase.auth.verifyOtp({
         token_hash: token,
@@ -175,12 +178,14 @@ export default function LoginPage() {
       });
       if (sessionErr) {
         setLoginError("Error al crear sesión. Intenta con magic link.");
+        setPasskeyLoading(false);
         return;
       }
 
+      // Keep spinner active during redirect — component will unmount
       router.push("/groups");
-    } finally {
-      setLoading(false);
+    } catch {
+      setPasskeyLoading(false);
     }
   }
 
@@ -192,13 +197,13 @@ export default function LoginPage() {
       return;
     }
     setLoginError("");
-    setLoading(true);
+    setLinkLoading(true);
     const supabase = createClient();
 
     if (usePassword && PASSWORD_AUTH_ENABLED) {
       if (!password) {
         setLoginError("Ingresa tu contraseña.");
-        setLoading(false);
+        setLinkLoading(false);
         passwordRef.current?.focus();
         return;
       }
@@ -206,25 +211,25 @@ export default function LoginPage() {
         email: trimmed,
         password,
       });
-      setLoading(false);
       if (error) {
         setLoginError("Correo o contraseña incorrectos.");
-      } else {
-        router.push("/groups");
+        setLinkLoading(false);
       }
+      // On success: keep spinner active during redirect
+      else router.push("/groups");
     } else {
       // Magic link (default in production)
       const { error } = await supabase.auth.signInWithOtp({
         email: trimmed,
         options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
       });
-      setLoading(false);
+      setLinkLoading(false);
       if (!error) setSent(true);
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") handleLogin();
+    if (e.key === "Enter" && !anyLoading) handleLogin();
   }
 
   const hasEmail = email.trim().length > 0;
@@ -263,7 +268,7 @@ export default function LoginPage() {
                 onKeyDown={handleKeyDown}
                 autoComplete="email"
                 inputMode="email"
-                disabled={loading}
+                disabled={anyLoading}
               />
 
               {/* Password field — only if toggle is on AND env enables it */}
@@ -280,7 +285,7 @@ export default function LoginPage() {
                   }}
                   onKeyDown={handleKeyDown}
                   autoComplete="current-password"
-                  disabled={loading}
+                  disabled={anyLoading}
                 />
               )}
 
@@ -294,12 +299,12 @@ export default function LoginPage() {
               <button
                 className={styles.btnPrimary}
                 onClick={handlePasskey}
-                disabled={loading}
+                disabled={anyLoading}
               >
-                {loading
+                {passkeyLoading
                   ? <span className={styles.spinner} />
                   : <PasskeyIcon />}
-                {loading ? "Verificando…" : "Continuar con Passkey"}
+                {passkeyLoading ? "Verificando…" : "Continuar con Passkey"}
               </button>
             )}
 
@@ -307,12 +312,12 @@ export default function LoginPage() {
             <button
               className={styles.btnSecondary}
               onClick={handleLogin}
-              disabled={loading}
+              disabled={anyLoading}
             >
-              {loading
+              {linkLoading
                 ? <span className={styles.spinnerMuted} />
                 : <EnvelopeIcon />}
-              {loading
+              {linkLoading
                 ? "Enviando…"
                 : usePassword && PASSWORD_AUTH_ENABLED
                 ? "Iniciar sesión"
@@ -320,7 +325,7 @@ export default function LoginPage() {
             </button>
 
             {/* ── Hint when no email entered ────────────────────────────── */}
-            {!hasEmail && !loading && (
+            {!hasEmail && !anyLoading && (
               <p className={styles.hint}>Escribe tu correo para continuar.</p>
             )}
 
@@ -332,7 +337,7 @@ export default function LoginPage() {
                   setUsePassword((p) => !p);
                   setLoginError("");
                 }}
-                disabled={loading}
+                disabled={anyLoading}
                 type="button"
               >
                 {usePassword

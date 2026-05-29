@@ -174,6 +174,7 @@ export default function GroupDetail({
   function handleDeleteGroup() {
     startDeleteGroupTransition(async () => {
       await deleteGroupAction(group.id);
+      router.refresh();
       router.replace("/groups");
     });
   }
