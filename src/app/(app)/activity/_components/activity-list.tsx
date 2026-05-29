@@ -24,11 +24,22 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
   const { debts } = globalBalance;
   const [debtExpanded, setDebtExpanded] = useState(false);
 
-  const totalExpenses = groups.reduce((sum, g) => sum + g.expenses.length, 0);
-  const totalAmount = groups.reduce((sum, g) => sum + g.expenses.reduce((s, e) => s + e.amount, 0), 0);
+  // Monthly totals — only expenses from the current calendar month
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const monthStartDate = monthStart.toISOString().slice(0, 10);
 
-  const iOwe = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
-  const theyOwe = debts.filter((d) => d.toUserId === userId).reduce((s, d) => s + d.amount, 0);
+  const monthExpenses = groups
+    .flatMap((g) => g.expenses)
+    .filter((e) => e.expense_date >= monthStartDate);
+
+  const totalExpenses = monthExpenses.length;
+  const totalAmount   = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  // Debts (iOwe / theyOwe) are all-time — show regardless of month
+  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
+  const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
   // Current month label
   const monthLabel = new Date().toLocaleDateString("es-CL", { month: "long" }).toUpperCase();

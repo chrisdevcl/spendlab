@@ -88,10 +88,17 @@ export default async function GroupsPage() {
   // Batch-fetch ALL expenses/splits/settlements for all groups in 3 queries
   const groupIds = groups.map((g) => g.id);
 
+  // Balance considers only the current calendar month
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const monthStartDate = monthStart.toISOString().slice(0, 10); // YYYY-MM-DD
+
   const { data: allExpenses } = await supabase
     .from("expenses")
     .select("*")
-    .in("group_id", groupIds);
+    .in("group_id", groupIds)
+    .gte("expense_date", monthStartDate);
 
   const expenseIds = (allExpenses ?? []).map((e) => e.id);
 
@@ -99,7 +106,11 @@ export default async function GroupsPage() {
     expenseIds.length
       ? supabase.from("expense_splits").select("*").in("expense_id", expenseIds)
       : Promise.resolve({ data: [] as ExpenseSplit[] }),
-    supabase.from("settlements").select("*").in("group_id", groupIds),
+    supabase
+      .from("settlements")
+      .select("*")
+      .in("group_id", groupIds)
+      .gte("settled_at", monthStart.toISOString()),
   ]);
 
   // Compute balance per group and attach

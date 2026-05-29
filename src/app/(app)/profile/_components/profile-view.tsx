@@ -257,17 +257,17 @@ export default function ProfileView({ profile, stats }: Props) {
         </div>
 
         {/* ── Stats grid 2×2 ────────────────────────────────────────── */}
-        <p className={styles.sectionLabel} style={{ marginBottom: "0.625rem" }}>Este mes</p>
+        <p className={styles.sectionLabel} style={{ marginBottom: "0.625rem" }}>Resumen total</p>
         <div className={styles.statsGrid}>
           <div className={styles.statCard}>
-            <p className={styles.statLabel}>Total pagado (mes)</p>
+            <p className={styles.statLabel}>Total pagado</p>
             <p className={styles.statValue}>
-              {formatCLP(stats.totalPaidThisMonth)}
+              {formatCLP(stats.totalPaid)}
             </p>
           </div>
           <div className={styles.statCard}>
             <p className={styles.statLabel}>Gastos registrados</p>
-            <p className={styles.statValue}>{stats.expensesThisMonth}</p>
+            <p className={styles.statValue}>{stats.totalExpenses}</p>
           </div>
           <div className={styles.statCard}>
             <p className={styles.statLabel}>Grupos activos</p>

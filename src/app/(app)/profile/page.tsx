@@ -10,8 +10,8 @@ const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ProfileStats {
-  totalPaidThisMonth: number;
-  expensesThisMonth: number;
+  totalPaid: number;
+  totalExpenses: number;
   activeGroups: number;
   netBalance: number;
 }
@@ -27,8 +27,8 @@ const MOCK_PROFILE: Profile = {
 };
 
 const MOCK_STATS: ProfileStats = {
-  totalPaidThisMonth: 34000,
-  expensesThisMonth: 3,
+  totalPaid: 148000,
+  totalExpenses: 12,
   activeGroups: 2,
   netBalance: -26000,
 };
@@ -62,29 +62,23 @@ export default async function ProfilePage() {
         .eq("user_id", user.id),
     ]);
 
-  // Current month filter
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
+  const allExpenses = expenses ?? [];
 
-  const thisMonthExpenses = (expenses ?? []).filter(
-    (e) => e.expense_date >= monthStart
-  );
-
-  const totalPaidThisMonth = thisMonthExpenses
+  // All-time totals
+  const totalPaid     = allExpenses
     .filter((e) => e.paid_by === user.id)
     .reduce((sum, e) => sum + e.amount, 0);
+  const totalExpenses = allExpenses.length;
 
-  // Global net balance
+  // All-time net balance
   const groupIds = [...new Set((memberships ?? []).map((m) => m.group_id))];
   const { data: settlements } = groupIds.length
     ? await supabase.from("settlements").select("*").in("group_id", groupIds)
     : { data: [] };
 
-  const allSplits = (expenses ?? []).flatMap((e) => e.splits);
+  const allSplits = allExpenses.flatMap((e) => e.splits);
   const profileMap = new Map<string, Profile>();
-  (expenses ?? []).forEach((e) => {
+  allExpenses.forEach((e) => {
     if (e.payer) profileMap.set(e.payer.id, e.payer);
     e.splits.forEach((s) => {
       if (s.profile) profileMap.set(s.profile.id, s.profile);
@@ -93,7 +87,7 @@ export default async function ProfilePage() {
   const allUserIds = [...profileMap.keys()];
 
   const { net: netBalance } = computeGlobalBalance(
-    expenses ?? [],
+    allExpenses,
     allSplits,
     settlements ?? [],
     user.id,
@@ -101,8 +95,8 @@ export default async function ProfilePage() {
   );
 
   const stats: ProfileStats = {
-    totalPaidThisMonth,
-    expensesThisMonth: thisMonthExpenses.length,
+    totalPaid,
+    totalExpenses,
     activeGroups: groupIds.length,
     netBalance,
   };

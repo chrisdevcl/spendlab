@@ -174,6 +174,7 @@ export default async function ActivityPage() {
   const allUserIds = [...profileMap.keys()];
   const allSplits = expenses.flatMap((e) => e.splits);
 
+  // Debts use ALL-TIME data — outstanding amounts between users regardless of month
   const rawBalance = computeGlobalBalance(
     expenses,
     allSplits,
@@ -183,7 +184,8 @@ export default async function ActivityPage() {
   );
 
   const globalBalance: GlobalBalance = {
-    ...rawBalance,
+    // net is unused in ActivityList (totals are computed per-month in the component)
+    net: rawBalance.net,
     debts: rawBalance.debts.map((d) => ({
       ...d,
       fromProfile: profileMap.get(d.fromUserId),

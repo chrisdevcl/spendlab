@@ -181,357 +181,360 @@ export default function GroupDetail({
 
   // ── Balance computed values ─────────────────────────────────────────────────
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+  // iOwe / theyOwe: all-time outstanding debts (regardless of month)
   const iOwe = debts
     .filter((d) => d.fromUserId === userId)
     .reduce((s, d) => s + d.amount, 0);
-  const theyOwe = debts
+    debts
     .filter((d) => d.toUserId === userId)
     .reduce((s, d) => s + d.amount, 0);
-  const net = theyOwe - iOwe;
+    // net: monthly (passed from the page, not recomputed from all-time debts)
+    const net = globalBalance.net;
 
-  // Names for the balance subtitle
-  const owedToNames = debts
+    // Names for the balance subtitle
+    const owedToNames = debts
     .filter((d) => d.fromUserId === userId)
     .map((d) => firstWord(d.toProfile?.display_name ?? ""))
     .join(", ");
-  const owedByNames = debts
+    const owedByNames = debts
     .filter((d) => d.toUserId === userId)
     .map((d) => firstWord(d.fromProfile?.display_name ?? ""))
     .join(", ");
 
-  // Group subtitle line (header)
-  const groupSubtitle = !multiMember
-    ? "Solo tú"
-    : group.members.length === 2
-    ? `Tú y ${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")}`
-    : `${group.members.length} integrantes`;
+    // Group subtitle line (header)
+    const groupSubtitle = !multiMember
+        ? "Solo tú"
+        : group.members.length === 2
+            ? `Tú y ${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")}`
+            : `${group.members.length} integrantes`;
 
-  return (
-    <div className={styles.page}>
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className={styles.header}>
-        <button className={styles.iconBtn} onClick={() => router.back()} aria-label="Volver">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M12.5 16L7 10L12.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <div className={styles.headerCenter}>
-          <h1 className={styles.groupName}>{group.name}</h1>
-          <p className={styles.groupSubtitle}>{groupSubtitle}</p>
-        </div>
-        <button className={styles.inviteBtn} onClick={openInvite}>
-          Invitar
-        </button>
-      </header>
-
-      <div className={styles.content}>
-        {/* ── Balance card (multi only) ─────────────────────────────── */}
-        {multiMember && (
-          <div className={styles.balanceCard}>
-            <p className={styles.balanceEyebrow}>Balance del grupo</p>
-            <p className={styles.balanceAmount}>
-              {net === 0
-                ? formatCLP(totalExpenses)
-                : net < 0
-                ? formatCLP(net)
-                : `+${formatCLP(net)}`}
-            </p>
-            <p className={styles.balanceSub}>
-              {net === 0
-                ? totalExpenses > 0 ? "Todo al día ✓" : "Sin gastos aún"
-                : net < 0
-                ? `Le debes a ${owedToNames}`
-                : `Te debe ${owedByNames}`}
-            </p>
-            {iOwe > 0 && (
-              <button
-                className={styles.balanceRegisterBtn}
-                onClick={() => {
-                  const debt = debts.find((d) => d.fromUserId === userId);
-                  if (debt) openSettlement(debt.toUserId, firstWord(debt.toProfile?.display_name ?? ""), debt.amount);
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Registrar pago
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* ── Debts section (multi-member only) ────────────────────────── */}
-        {multiMember && debts.length > 0 && (
-          <section className={styles.section}>
-            <div className={styles.sectionHead}>
-              <span className={styles.eyebrow}>Deudas simplificadas</span>
-            </div>
-            <div className={styles.debtList}>
-              {debts.map((debt, i) => {
-                const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
-                const toName = firstWord(debt.toProfile?.display_name ?? debt.toUserId);
-                const isMyDebt = debt.fromUserId === userId;
-                return (
-                  <div key={i} className={styles.debtRow}>
-                    <div className={styles.debtAvatars}>
-                      <div className={styles.avatarSm}>
-                        {(debt.fromProfile?.display_name ?? "?")[0].toUpperCase()}
-                      </div>
-                      <svg className={styles.arrow} width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <div className={styles.avatarSm}>
-                        {(debt.toProfile?.display_name ?? "?")[0].toUpperCase()}
-                      </div>
-                    </div>
-                    <div className={styles.debtInfo}>
-                      <p className={styles.debtNames}>
-                        {fromName} → {toName}
-                      </p>
-                      <p className={styles.debtAmount}>{formatCLP(debt.amount)}</p>
-                    </div>
-                    {isMyDebt && (
-                      <button
-                        className={styles.payBtn}
-                        onClick={() =>
-                          openSettlement(
-                            debt.toUserId,
-                            toName,
-                            debt.amount
-                          )
-                        }
-                      >
-                        Pagar
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* ── Expenses section ─────────────────────────────────────────── */}
-        <section className={styles.section}>
-          <div className={styles.sectionHead}>
-            <span className={styles.eyebrow}>Gastos recientes</span>
-            <Link href={`/groups/${group.id}/expenses/new`} className={styles.addBtn}>
-              + Añadir
-            </Link>
-          </div>
-
-          {expenses.length === 0 ? (
-            <div className={styles.emptyExpenses}>
-              <p className={styles.emptyTitle}>Sin gastos aún</p>
-              <p className={styles.emptySub}>
-                Añade el primer gasto del grupo.
-              </p>
-            </div>
-          ) : (
-            <div className={styles.expenseList}>
-              {expenses.map((expense) => {
-                const myShare = expense.splits.find(
-                  (s) => s.user_id === userId
-                )?.amount;
-                const payerName =
-                  expense.paid_by === userId
-                    ? "Tú"
-                    : firstWord(expense.payer?.display_name ?? "");
-                return (
-                  <Link
-                    key={expense.id}
-                    href={`/activity/${expense.id}`}
-                    className={styles.expenseRow}
-                  >
-                    <div className={styles.expenseInfo}>
-                      <div className={styles.expenseRowTop}>
-                        <p className={styles.expenseDesc}>{expense.description}</p>
-                        <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
-                      </div>
-                      <div className={styles.expenseRowBottom}>
-                        <p className={styles.expenseMeta}>
-                          {formatRelativeDate(expense.expense_date)}{multiMember ? ` · pagó ${payerName}` : ""}
-                        </p>
-                        {multiMember && myShare != null && (
-                          <p className={styles.expenseShare}>tu parte {formatCLP(myShare)}</p>
-                        )}
-                      </div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.expenseChevron}>
-                      <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    return (
+        <div className={styles.page}>
+            {/* ── Header ─────────────────────────────────────────────────────── */}
+            <header className={styles.header}>
+                <button className={styles.iconBtn} onClick={() => router.back()} aria-label="Volver">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M12.5 16L7 10L12.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* ── Danger zone — only for group creator ──────────────────────── */}
-        {group.created_by === userId && (
-          <div className={styles.dangerSection}>
-            <button
-              className={styles.btnDeleteGroup}
-              onClick={() => setDeleteGroupOpen(true)}
-            >
-              Eliminar grupo
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Delete group modal ───────────────────────────────────────────── */}
-      {deleteGroupOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={() => { if (!isPendingDeleteGroup) setDeleteGroupOpen(false); }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Eliminar grupo"
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.modalTitle}>¿Eliminar grupo?</p>
-            <p className={styles.modalSub}>
-              Se eliminarán todos los gastos y datos de &ldquo;{group.name}&rdquo;.
-              Esta acción no se puede deshacer.
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                className={styles.btnCancel}
-                onClick={() => setDeleteGroupOpen(false)}
-                disabled={isPendingDeleteGroup}
-              >
-                Cancelar
-              </button>
-              <button
-                className={styles.btnDanger}
-                onClick={handleDeleteGroup}
-                disabled={isPendingDeleteGroup}
-              >
-                {isPendingDeleteGroup ? "Eliminando…" : "Eliminar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Settlement modal ─────────────────────────────────────────────── */}
-      {settlementTarget && (
-        <div
-          className={styles.backdrop}
-          onClick={closeSettlement}
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Pagar a ${settlementTarget.toName}`}
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.modalTitle}>
-              Pagar a {settlementTarget.toName}
-            </p>
-            <p className={styles.modalSub}>
-              Deuda: {formatCLP(settlementTarget.maxAmount)}
-            </p>
-            <input
-              ref={settlementInputRef}
-              className={styles.modalInput}
-              type="text"
-              inputMode="numeric"
-              placeholder="Monto a pagar"
-              value={settlementRaw ? formatCLPInput(settlementRaw) : ""}
-              disabled={isPendingSettle}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, "");
-                setSettlementRaw(digits);
-                if (settlementError) setSettlementError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSettle();
-              }}
-            />
-            {settlementError && (
-              <p className={styles.modalError}>{settlementError}</p>
-            )}
-            <div className={styles.modalActions}>
-              <button
-                className={styles.btnCancel}
-                onClick={closeSettlement}
-                disabled={isPendingSettle}
-              >
-                Cancelar
-              </button>
-              <button
-                className={styles.btnConfirm}
-                onClick={handleSettle}
-                disabled={isPendingSettle || settlementAmount <= 0}
-              >
-                {isPendingSettle ? "Registrando…" : "Confirmar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Invite modal ────────────────────────────────────────────────── */}
-      {inviteOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={closeInvite}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Invitar integrante"
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            {inviteSuccess ? (
-              <div className={styles.inviteSuccess}>
-                <p className={styles.successIcon}>✓</p>
-                <p className={styles.modalTitle}>Invitación enviada</p>
-              </div>
-            ) : (
-              <>
-                <p className={styles.modalTitle}>Invitar integrante</p>
-                <input
-                  ref={inviteInputRef}
-                  className={styles.modalInput}
-                  type="email"
-                  placeholder="correo@ejemplo.com"
-                  value={inviteEmail}
-                  maxLength={254}
-                  disabled={isPendingInvite}
-                  onChange={(e) => {
-                    setInviteEmail(e.target.value);
-                    if (inviteError) setInviteError("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleInvite();
-                  }}
-                />
-                {inviteError && (
-                  <p className={styles.modalError}>{inviteError}</p>
-                )}
-                <div className={styles.modalActions}>
-                  <button
-                    className={styles.btnCancel}
-                    onClick={closeInvite}
-                    disabled={isPendingInvite}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    className={styles.btnConfirm}
-                    onClick={handleInvite}
-                    disabled={isPendingInvite || !inviteEmail.trim()}
-                  >
-                    {isPendingInvite ? "Enviando…" : "Invitar"}
-                  </button>
+                </button>
+                <div className={styles.headerCenter}>
+                    <h1 className={styles.groupName}>{group.name}</h1>
+                    <p className={styles.groupSubtitle}>{groupSubtitle}</p>
                 </div>
-              </>
+                <button className={styles.inviteBtn} onClick={openInvite}>
+                    Invitar
+                </button>
+            </header>
+
+            <div className={styles.content}>
+                {/* ── Balance card (multi only) ─────────────────────────────── */}
+                {multiMember && (
+                    <div className={styles.balanceCard}>
+                        <p className={styles.balanceEyebrow}>Balance este mes</p>
+                        <p className={styles.balanceAmount}>
+                            {net === 0
+                                ? formatCLP(totalExpenses)
+                                : net < 0
+                                    ? formatCLP(net)
+                                    : `+${formatCLP(net)}`}
+                        </p>
+                        <p className={styles.balanceSub}>
+                            {net === 0
+                                ? totalExpenses > 0 ? "Todo al día ✓" : "Sin gastos aún"
+                                : net < 0
+                                    ? `Le debes a ${owedToNames}`
+                                    : `Te debe ${owedByNames}`}
+                        </p>
+                        {iOwe > 0 && (
+                            <button
+                                className={styles.balanceRegisterBtn}
+                                onClick={() => {
+                                    const debt = debts.find((d) => d.fromUserId === userId);
+                                    if (debt) openSettlement(debt.toUserId, firstWord(debt.toProfile?.display_name ?? ""), debt.amount);
+                                }}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                                    <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                Registrar pago
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {/* ── Debts section (multi-member only) ────────────────────────── */}
+                {multiMember && debts.length > 0 && (
+                    <section className={styles.section}>
+                        <div className={styles.sectionHead}>
+                            <span className={styles.eyebrow}>Deudas simplificadas</span>
+                        </div>
+                        <div className={styles.debtList}>
+                            {debts.map((debt, i) => {
+                                const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
+                                const toName = firstWord(debt.toProfile?.display_name ?? debt.toUserId);
+                                const isMyDebt = debt.fromUserId === userId;
+                                return (
+                                    <div key={i} className={styles.debtRow}>
+                                        <div className={styles.debtAvatars}>
+                                            <div className={styles.avatarSm}>
+                                                {(debt.fromProfile?.display_name ?? "?")[0].toUpperCase()}
+                                            </div>
+                                            <svg className={styles.arrow} width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            </svg>
+                                            <div className={styles.avatarSm}>
+                                                {(debt.toProfile?.display_name ?? "?")[0].toUpperCase()}
+                                            </div>
+                                        </div>
+                                        <div className={styles.debtInfo}>
+                                            <p className={styles.debtNames}>
+                                                {fromName} → {toName}
+                                            </p>
+                                            <p className={styles.debtAmount}>{formatCLP(debt.amount)}</p>
+                                        </div>
+                                        {isMyDebt && (
+                                            <button
+                                                className={styles.payBtn}
+                                                onClick={() =>
+                                                    openSettlement(
+                                                        debt.toUserId,
+                                                        toName,
+                                                        debt.amount
+                                                    )
+                                                }
+                                            >
+                                                Pagar
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </section>
+                )}
+
+                {/* ── Expenses section ─────────────────────────────────────────── */}
+                <section className={styles.section}>
+                    <div className={styles.sectionHead}>
+                        <span className={styles.eyebrow}>Gastos recientes</span>
+                        <Link href={`/groups/${group.id}/expenses/new`} className={styles.addBtn}>
+                            + Añadir
+                        </Link>
+                    </div>
+
+                    {expenses.length === 0 ? (
+                        <div className={styles.emptyExpenses}>
+                            <p className={styles.emptyTitle}>Sin gastos aún</p>
+                            <p className={styles.emptySub}>
+                                Añade el primer gasto del grupo.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className={styles.expenseList}>
+                            {expenses.map((expense) => {
+                                const myShare = expense.splits.find(
+                                    (s) => s.user_id === userId
+                                )?.amount;
+                                const payerName =
+                                    expense.paid_by === userId
+                                        ? "Tú"
+                                        : firstWord(expense.payer?.display_name ?? "");
+                                return (
+                                    <Link
+                                        key={expense.id}
+                                        href={`/activity/${expense.id}`}
+                                        className={styles.expenseRow}
+                                    >
+                                        <div className={styles.expenseInfo}>
+                                            <div className={styles.expenseRowTop}>
+                                                <p className={styles.expenseDesc}>{expense.description}</p>
+                                                <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+                                            </div>
+                                            <div className={styles.expenseRowBottom}>
+                                                <p className={styles.expenseMeta}>
+                                                    {formatRelativeDate(expense.expense_date)}{multiMember ? ` · pagó ${payerName}` : ""}
+                                                </p>
+                                                {multiMember && myShare != null && (
+                                                    <p className={styles.expenseShare}>tu parte {formatCLP(myShare)}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.expenseChevron}>
+                                            <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    </Link>
+                                );
+                            })}
+                        </div>
+                    )}
+                </section>
+
+                {/* ── Danger zone — only for group creator ──────────────────────── */}
+                {group.created_by === userId && (
+                    <div className={styles.dangerSection}>
+                        <button
+                            className={styles.btnDeleteGroup}
+                            onClick={() => setDeleteGroupOpen(true)}
+                        >
+                            Eliminar grupo
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Delete group modal ───────────────────────────────────────────── */}
+            {deleteGroupOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={() => { if (!isPendingDeleteGroup) setDeleteGroupOpen(false); }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Eliminar grupo"
+                >
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.modalTitle}>¿Eliminar grupo?</p>
+                        <p className={styles.modalSub}>
+                            Se eliminarán todos los gastos y datos de &ldquo;{group.name}&rdquo;.
+                            Esta acción no se puede deshacer.
+                        </p>
+                        <div className={styles.modalActions}>
+                            <button
+                                className={styles.btnCancel}
+                                onClick={() => setDeleteGroupOpen(false)}
+                                disabled={isPendingDeleteGroup}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className={styles.btnDanger}
+                                onClick={handleDeleteGroup}
+                                disabled={isPendingDeleteGroup}
+                            >
+                                {isPendingDeleteGroup ? "Eliminando…" : "Eliminar"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
-          </div>
+
+            {/* ── Settlement modal ─────────────────────────────────────────────── */}
+            {settlementTarget && (
+                <div
+                    className={styles.backdrop}
+                    onClick={closeSettlement}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Pagar a ${settlementTarget.toName}`}
+                >
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.modalTitle}>
+                            Pagar a {settlementTarget.toName}
+                        </p>
+                        <p className={styles.modalSub}>
+                            Deuda: {formatCLP(settlementTarget.maxAmount)}
+                        </p>
+                        <input
+                            ref={settlementInputRef}
+                            className={styles.modalInput}
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="Monto a pagar"
+                            value={settlementRaw ? formatCLPInput(settlementRaw) : ""}
+                            disabled={isPendingSettle}
+                            onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "");
+                                setSettlementRaw(digits);
+                                if (settlementError) setSettlementError("");
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSettle();
+                            }}
+                        />
+                        {settlementError && (
+                            <p className={styles.modalError}>{settlementError}</p>
+                        )}
+                        <div className={styles.modalActions}>
+                            <button
+                                className={styles.btnCancel}
+                                onClick={closeSettlement}
+                                disabled={isPendingSettle}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className={styles.btnConfirm}
+                                onClick={handleSettle}
+                                disabled={isPendingSettle || settlementAmount <= 0}
+                            >
+                                {isPendingSettle ? "Registrando…" : "Confirmar"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Invite modal ────────────────────────────────────────────────── */}
+            {inviteOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={closeInvite}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Invitar integrante"
+                >
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        {inviteSuccess ? (
+                            <div className={styles.inviteSuccess}>
+                                <p className={styles.successIcon}>✓</p>
+                                <p className={styles.modalTitle}>Invitación enviada</p>
+                            </div>
+                        ) : (
+                            <>
+                                <p className={styles.modalTitle}>Invitar integrante</p>
+                                <input
+                                    ref={inviteInputRef}
+                                    className={styles.modalInput}
+                                    type="email"
+                                    placeholder="correo@ejemplo.com"
+                                    value={inviteEmail}
+                                    maxLength={254}
+                                    disabled={isPendingInvite}
+                                    onChange={(e) => {
+                                        setInviteEmail(e.target.value);
+                                        if (inviteError) setInviteError("");
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleInvite();
+                                    }}
+                                />
+                                {inviteError && (
+                                    <p className={styles.modalError}>{inviteError}</p>
+                                )}
+                                <div className={styles.modalActions}>
+                                    <button
+                                        className={styles.btnCancel}
+                                        onClick={closeInvite}
+                                        disabled={isPendingInvite}
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        className={styles.btnConfirm}
+                                        onClick={handleInvite}
+                                        disabled={isPendingInvite || !inviteEmail.trim()}
+                                    >
+                                        {isPendingInvite ? "Enviando…" : "Invitar"}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 }
+
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 

@@ -150,20 +150,28 @@ export default async function GroupDetailPage({
 
   if (!group) redirect("/groups");
 
-  const memberIds = group.members.map((m) => m.id);
-  const globalBalance = computeGlobalBalance(
-    expenses ?? [],
-    splits ?? [],
-    settlements ?? [],
-    user.id,
-    memberIds
-  );
+  // Balance considers only the current calendar month
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const monthStartDate = monthStart.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  // Enrich debts with profile objects
+  const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
+
+  // Monthly net (for the balance card summary)
+  const monthExpenses    = (expenses    ?? []).filter(e => e.expense_date >= monthStartDate);
+  const monthExpenseIds  = new Set(monthExpenses.map(e => e.id));
+  const monthSplits      = (splits      ?? []).filter(s => monthExpenseIds.has(s.expense_id));
+  const monthSettlements = (settlements ?? []).filter(s => s.settled_at >= monthStart.toISOString());
+  const { net: monthlyNet } = computeGlobalBalance(monthExpenses, monthSplits, monthSettlements, user.id, memberIds);
+
+  // All-time debts (outstanding amounts between members, regardless of month)
+  const allTimeBalance = computeGlobalBalance(expenses ?? [], splits ?? [], settlements ?? [], user.id, memberIds);
+
   const enrichedBalance: GlobalBalance = {
-    ...globalBalance,
-    debts: globalBalance.debts.map((debt) => ({
+    net: monthlyNet,
+    debts: allTimeBalance.debts.map((debt) => ({
       ...debt,
       fromProfile: profileMap.get(debt.fromUserId),
       toProfile: profileMap.get(debt.toUserId),
