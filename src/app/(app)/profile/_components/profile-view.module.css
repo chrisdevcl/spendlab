@@ -353,3 +353,55 @@
 }
 .btnDelete:hover { opacity: 0.88; }
 .btnDelete:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Passkey list ─────────────────────────────────────────────────────────── */
+.passkeyEmpty {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.passkeyRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.passkeyRow:last-child { border-bottom: none; }
+
+.passkeyInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.passkeyName {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.passkeyDate {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.passkeyDelete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
+}
+.passkeyDelete:hover { color: var(--color-negative); background: var(--color-bg-muted); }
+.passkeyDelete:disabled { opacity: 0.45; cursor: not-allowed; }

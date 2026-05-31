@@ -16,6 +16,14 @@ export interface ProfileStats {
   netBalance: number;
 }
 
+export interface PasskeyItem {
+  id: string;
+  device_type: string;
+  backed_up: boolean;
+  transports: string[];
+  created_at: string;
+}
+
 // ── Dev stubs ────────────────────────────────────────────────────────────────
 
 const MOCK_PROFILE: Profile = {
@@ -41,6 +49,7 @@ export default async function ProfilePage() {
       <ProfileView
         profile={MOCK_PROFILE}
         stats={MOCK_STATS}
+        passkeys={[]}
       />
     );
   }
@@ -51,16 +60,20 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Parallel: profile + expenses + groups
-  const [{ data: profile }, expenses, { data: memberships }] =
+  // Parallel: profile + expenses + groups + passkeys
+  const [{ data: profile }, expenses, { data: memberships }, { data: passkeysRaw }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       getAllUserExpenses(user.id),
+      supabase.from("group_members").select("group_id").eq("user_id", user.id),
       supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("user_id", user.id),
+        .from("passkey_credentials")
+        .select("id, device_type, backed_up, transports, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true }),
     ]);
+
+  const passkeys: PasskeyItem[] = (passkeysRaw ?? []) as PasskeyItem[];
 
   const allExpenses = expenses ?? [];
 
@@ -101,5 +114,5 @@ export default async function ProfilePage() {
     netBalance,
   };
 
-  return <ProfileView profile={profile} stats={stats} />;
+  return <ProfileView profile={profile} stats={stats} passkeys={passkeys} />;
 }

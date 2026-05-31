@@ -58,8 +58,12 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (existingProfile) {
-    // User already has an account (just no passkeys yet)
-    userId = existingProfile.id;
+    // Existing accounts must add passkeys from settings (authenticated),
+    // not from the public registration flow — reject to prevent account takeover.
+    return NextResponse.json(
+      { error: "Esta cuenta ya existe. Usa el enlace mágico para ingresar." },
+      { status: 403 }
+    );
   } else {
     // Brand-new user: create account and auto-confirm email
     const { data: newUser, error: createErr } = await admin.auth.admin.createUser({

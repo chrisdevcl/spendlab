@@ -330,7 +330,7 @@ BEGIN
 
   SELECT json_agg(row_to_json(t) ORDER BY t.created_at DESC) INTO result
   FROM (
-    SELECT
+    SELECT DISTINCT ON (gi.group_id)
       gi.id,
       gi.group_id,
       g.name         AS group_name,
@@ -346,6 +346,7 @@ BEGIN
     WHERE gi.invited_email = v_email
       AND gi.accepted_at  IS NULL
       AND gi.expires_at   > now()
+    ORDER BY gi.group_id, gi.created_at DESC
   ) t;
 
   RETURN COALESCE(result, '[]'::json);

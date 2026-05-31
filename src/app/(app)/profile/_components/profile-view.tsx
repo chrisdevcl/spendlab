@@ -11,12 +11,13 @@ import { useRouter } from "next/navigation";
 import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { updateDisplayName, signOut, deleteAccount } from "../actions";
-import type { ProfileStats } from "../page";
+import type { ProfileStats, PasskeyItem } from "../page";
 import styles from "./profile-view.module.css";
 
 interface Props {
   profile: Profile | null;
   stats: ProfileStats;
+  passkeys: PasskeyItem[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ function initials(name: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ProfileView({ profile, stats }: Props) {
+export default function ProfileView({ profile, stats, passkeys: initialPasskeys }: Props) {
   const router = useRouter();
 
   const email = profile?.email ?? "";
@@ -74,10 +75,12 @@ export default function ProfileView({ profile, stats }: Props) {
   }
 
   // ── Passkeys ───────────────────────────────────────────────────────────────
-  const [passkeyMsg, setPasskeyMsg]       = useState("");
-  const [passkeyError, setPasskeyError]   = useState(false);
+  const [passkeys, setPasskeys] = useState<PasskeyItem[]>(initialPasskeys);
+  const [passkeyMsg, setPasskeyMsg]     = useState("");
+  const [passkeyError, setPasskeyError] = useState(false);
   const [isPendingPasskey, startPasskeyTransition] = useTransition();
   const [passkeySupported, setPasskeySupported] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (
@@ -90,22 +93,22 @@ export default function ProfileView({ profile, stats }: Props) {
     }
   }, []);
 
-  function handlePasskey() {
-    setPasskeyError(false);
+  function showPasskeyMsg(msg: string, isError = false) {
+    setPasskeyMsg(msg);
+    setPasskeyError(isError);
+    setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+  }
+
+  function handleAddPasskey() {
     startPasskeyTransition(async () => {
-      // 1. Get registration options from server
       const beginRes = await fetch("/api/passkey/register/begin", { method: "POST" });
       if (!beginRes.ok) {
         const d = await beginRes.json().catch(() => ({}));
-        setPasskeyMsg(d.error ?? "Error al registrar passkey");
-        setPasskeyError(true);
-        setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        showPasskeyMsg(d.error ?? "Error al registrar passkey", true);
         return;
       }
       const options = await beginRes.json();
 
-      // 2. Trigger platform authenticator
-      //    startRegistration can throw InvalidStateError or NotAllowedError
       let credential;
       try {
         const { startRegistration } = await import("@simplewebauthn/browser");
@@ -113,18 +116,13 @@ export default function ProfileView({ profile, stats }: Props) {
       } catch (err) {
         const name = (err as Error).name;
         if (name === "InvalidStateError") {
-          setPasskeyMsg("Este dispositivo ya tiene una passkey registrada");
-          setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+          showPasskeyMsg("Este dispositivo ya tiene una passkey registrada");
         } else if (name !== "NotAllowedError") {
-          // NotAllowedError = user cancelled — show nothing
-          setPasskeyMsg("Error al registrar passkey");
-          setPasskeyError(true);
-          setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+          showPasskeyMsg("Error al registrar passkey", true);
         }
         return;
       }
 
-      // 3. Verify with server and persist
       const finishRes = await fetch("/api/passkey/register/finish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,14 +130,38 @@ export default function ProfileView({ profile, stats }: Props) {
       });
       const data = await finishRes.json();
       if (!finishRes.ok || data.error) {
-        setPasskeyMsg(data.error ?? "Error al registrar passkey");
-        setPasskeyError(true);
-        setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
+        showPasskeyMsg(data.error ?? "Error al registrar passkey", true);
         return;
       }
 
-      setPasskeyMsg("Passkey registrada correctamente");
-      setTimeout(() => setPasskeyMsg(""), 4000);
+      showPasskeyMsg("Passkey añadida correctamente");
+      router.refresh();
+    });
+  }
+
+  async function handleDeletePasskey(id: string) {
+    setDeletingId(id);
+    const res = await fetch(`/api/passkey/register/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    setDeletingId(null);
+    if (!res.ok || data.error) {
+      showPasskeyMsg(data.error ?? "Error al eliminar passkey", true);
+      return;
+    }
+    setPasskeys((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  function passkeyLabel(pk: PasskeyItem): string {
+    if (pk.backed_up) return "Passkey sincronizada";
+    if (pk.transports.includes("internal")) return "Passkey de dispositivo";
+    return "Passkey";
+  }
+
+  function formatPasskeyDate(iso: string): string {
+    return new Date(iso).toLocaleDateString("es-CL", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
     });
   }
 
@@ -304,6 +326,70 @@ export default function ProfileView({ profile, stats }: Props) {
           </div>
         </section>
 
+        {/* ── Passkeys section ──────────────────────────────────────── */}
+        {passkeySupported && (
+          <section className={styles.section}>
+            <p className={styles.sectionLabel}>Passkeys</p>
+            <div className={styles.accountList}>
+              {passkeys.length === 0 && (
+                <p className={styles.passkeyEmpty}>No tienes passkeys registradas.</p>
+              )}
+              {passkeys.map((pk) => (
+                <div key={pk.id} className={styles.passkeyRow}>
+                  <div className={styles.rowIcon}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+                      <path d="M12 10a2 2 0 0 0-2 2c0 1.7 1.08 3.15 2.6 3.68" />
+                      <path d="M12 6a6 6 0 0 1 6 6c0 1.37-.45 2.63-1.2 3.65" />
+                      <path d="M12 6a6 6 0 0 0-6 6c0 3.31 2.69 6 6 6" />
+                      <path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07" />
+                      <path d="M12 2c5.52 0 10 4.48 10 10 0 1.45-.31 2.82-.86 4.06" />
+                    </svg>
+                  </div>
+                  <div className={styles.passkeyInfo}>
+                    <span className={styles.passkeyName}>{passkeyLabel(pk)}</span>
+                    <span className={styles.passkeyDate}>Añadida el {formatPasskeyDate(pk.created_at)}</span>
+                  </div>
+                  <button
+                    className={styles.passkeyDelete}
+                    onClick={() => handleDeletePasskey(pk.id)}
+                    disabled={deletingId === pk.id}
+                    aria-label="Eliminar passkey"
+                  >
+                    {deletingId === pk.id ? "…" : (
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 4h10M6 4V2.5h4V4M5 4v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              ))}
+              <button
+                className={styles.accountRow}
+                onClick={handleAddPasskey}
+                disabled={isPendingPasskey}
+              >
+                <div className={styles.rowIcon}>
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 4v10M4 9h10" />
+                  </svg>
+                </div>
+                <span className={styles.rowLabel}>
+                  {isPendingPasskey ? "Registrando…" : "Añadir passkey"}
+                </span>
+                {passkeyMsg ? (
+                  <span className={passkeyError ? styles.rowMsgError : styles.rowMsg}>
+                    {passkeyMsg}
+                  </span>
+                ) : (
+                  <svg className={styles.rowChevron} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* ── Account section ───────────────────────────────────────── */}
         <section className={styles.section}>
           <p className={styles.sectionLabel}>Cuenta</p>
@@ -329,37 +415,6 @@ export default function ProfileView({ profile, stats }: Props) {
                 <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-
-            {/* Registrar passkey — solo si el dispositivo lo soporta */}
-            {passkeySupported && (
-              <button
-                className={styles.accountRow}
-                onClick={handlePasskey}
-                disabled={isPendingPasskey}
-              >
-                <div className={styles.rowIcon}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                    <path d="M12 10a2 2 0 0 0-2 2c0 1.7 1.08 3.15 2.6 3.68" />
-                    <path d="M12 6a6 6 0 0 1 6 6c0 1.37-.45 2.63-1.2 3.65" />
-                    <path d="M12 6a6 6 0 0 0-6 6c0 3.31 2.69 6 6 6" />
-                    <path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07" />
-                    <path d="M12 2c5.52 0 10 4.48 10 10 0 1.45-.31 2.82-.86 4.06" />
-                  </svg>
-                </div>
-                <span className={styles.rowLabel}>
-                  {isPendingPasskey ? "Registrando…" : "Registrar passkey"}
-                </span>
-                {passkeyMsg ? (
-                  <span className={passkeyError ? styles.rowMsgError : styles.rowMsg}>
-                    {passkeyMsg}
-                  </span>
-                ) : (
-                  <svg className={styles.rowChevron} width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
-            )}
 
             {/* Cerrar sesión */}
             <button

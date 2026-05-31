@@ -36,6 +36,14 @@ export async function createExpense(
   );
   if (!expense) return { error: "Error al guardar el gasto. Intenta de nuevo." };
 
+  // Fire-and-forget push notification to other group members
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3741";
+  fetch(`${appUrl}/api/push/expense`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupId, paidBy, description: description.trim(), amount }),
+  }).catch((err) => console.error("[createExpense] push notification error:", err));
+
   revalidatePath(`/groups/${groupId}`);
   redirect(`/groups/${groupId}`);
 }

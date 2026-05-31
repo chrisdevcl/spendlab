@@ -39,23 +39,20 @@ export async function POST(request: NextRequest) {
     .eq("email", email)
     .maybeSingle();
 
-  const hasPasskeys =
-    profile
-      ? (await admin
-          .from("passkey_credentials")
-          .select("credential_id, transports")
-          .eq("user_id", profile.id)
-        ).data?.length ?? 0 > 0
-      : false;
-
-  // ── AUTHENTICATE: user already has passkeys ──────────────────────────────
-  if (hasPasskeys && profile) {
-    const { data: creds } = await admin
+  let creds: { credential_id: string; transports: string[] | null }[] = [];
+  if (profile) {
+    const { data } = await admin
       .from("passkey_credentials")
       .select("credential_id, transports")
       .eq("user_id", profile.id);
+    creds = data ?? [];
+  }
 
-    const allowCredentials = (creds ?? []).map((c) => ({
+  const hasPasskeys = creds.length > 0;
+
+  // ── AUTHENTICATE: user already has passkeys ──────────────────────────────
+  if (hasPasskeys && profile) {
+    const allowCredentials = creds.map((c) => ({
       id: c.credential_id,
       transports: (c.transports ?? []) as AuthenticatorTransportFuture[],
     }));
@@ -77,7 +74,17 @@ export async function POST(request: NextRequest) {
     return res;
   }
 
-  // ── REGISTER: new user OR existing user without passkeys ─────────────────
+  // ── EXISTING USER WITHOUT PASSKEYS: must use magic link ──────────────────
+  // Allowing passkey registration here would let anyone claim an existing
+  // account just by knowing its email address.
+  if (profile) {
+    return NextResponse.json(
+      { error: "Esta cuenta no tiene passkeys. Usa el enlace mágico para ingresar." },
+      { status: 403 }
+    );
+  }
+
+  // ── REGISTER: brand-new user only ────────────────────────────────────────
   // Use email bytes as userID so it's deterministic across calls.
   const userID = new TextEncoder().encode(email);
 

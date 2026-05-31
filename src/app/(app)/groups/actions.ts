@@ -79,7 +79,8 @@ export async function acceptInvitation(
 }
 
 export async function rejectInvitation(
-  invitationId: string
+  invitationId: string,
+  groupId: string
 ): Promise<{ error?: string }> {
   if (DEV_MODE) return {};
 
@@ -95,10 +96,11 @@ export async function rejectInvitation(
     .eq("id", user.id)
     .single();
 
+  // Delete all pending invitations for this group+email (covers duplicates)
   await supabase
     .from("group_invitations")
     .delete()
-    .eq("id", invitationId)
+    .eq("group_id", groupId)
     .eq("invited_email", profile?.email ?? "")
     .is("accepted_at", null);
 
