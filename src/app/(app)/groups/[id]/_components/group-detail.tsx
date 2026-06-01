@@ -6,21 +6,33 @@ import {
   useTransition,
   useEffect,
   useCallback,
+  useMemo,
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { GroupWithMembers, ExpenseWithDetails, GlobalBalance } from "@/types";
-import type { Profile } from "@/types/database.types";
+import type { GroupWithMembers, ExpenseWithDetails } from "@/types";
+import type { Profile, Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
+import { computeGlobalBalance } from "@/lib/utils/balance";
 import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
 interface Props {
   group: GroupWithMembers;
   expenses: ExpenseWithDetails[];
-  globalBalance: GlobalBalance;
+  settlements: Settlement[];
   userId: string;
   profile: Profile | null;
+}
+
+// YYYY-MM string for a given Date
+function toMonthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("es-CL", { month: "long", year: "numeric" });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -48,12 +60,64 @@ function firstWord(name: string): string {
 export default function GroupDetail({
   group,
   expenses,
-  globalBalance,
+  settlements,
   userId,
 }: Props) {
   const router = useRouter();
   const multiMember = group.members.length > 1;
-  const { debts } = globalBalance;
+
+  // ── Month picker ───────────────────────────────────────────────────────────
+  const currentMonthKey = toMonthKey(new Date());
+
+  // Build sorted list of months that have expenses or settlements
+  const availableMonths = useMemo(() => {
+    const keys = new Set<string>();
+    keys.add(currentMonthKey);
+    expenses.forEach((e) => keys.add(e.expense_date.slice(0, 7)));
+    settlements.forEach((s) => keys.add(s.settled_at.slice(0, 7)));
+    return [...keys].sort().reverse(); // most recent first
+  }, [expenses, settlements, currentMonthKey]);
+
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
+
+  function prevMonth() {
+    const idx = availableMonths.indexOf(selectedMonth);
+    if (idx < availableMonths.length - 1) setSelectedMonth(availableMonths[idx + 1]);
+  }
+  function nextMonth() {
+    const idx = availableMonths.indexOf(selectedMonth);
+    if (idx > 0) setSelectedMonth(availableMonths[idx - 1]);
+  }
+
+  const canGoPrev = availableMonths.indexOf(selectedMonth) < availableMonths.length - 1;
+  const canGoNext = availableMonths.indexOf(selectedMonth) > 0;
+
+  // ── Month-filtered data ────────────────────────────────────────────────────
+  const filteredExpenses = useMemo(
+    () => expenses.filter((e) => e.expense_date.slice(0, 7) === selectedMonth),
+    [expenses, selectedMonth]
+  );
+
+  const filteredSettlements = useMemo(
+    () => settlements.filter((s) => s.settled_at.slice(0, 7) === selectedMonth),
+    [settlements, selectedMonth]
+  );
+
+  // Compute balance for selected month
+  const { net, debts } = useMemo(() => {
+    const memberIds = group.members.map((m) => m.id);
+    const profileMap = new Map(group.members.map((m) => [m.id, m]));
+    const splits = filteredExpenses.flatMap((e) => e.splits);
+    const raw = computeGlobalBalance(filteredExpenses, splits, filteredSettlements, userId, memberIds);
+    return {
+      net: raw.net,
+      debts: raw.debts.map((d) => ({
+        ...d,
+        fromProfile: profileMap.get(d.fromUserId),
+        toProfile: profileMap.get(d.toUserId),
+      })),
+    };
+  }, [filteredExpenses, filteredSettlements, group.members, userId]);
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -179,34 +243,26 @@ export default function GroupDetail({
     });
   }
 
-  // ── Balance computed values ─────────────────────────────────────────────────
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-  // iOwe / theyOwe: all-time outstanding debts (regardless of month)
+  // ── Balance display values ─────────────────────────────────────────────────
+  const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const iOwe = debts
     .filter((d) => d.fromUserId === userId)
     .reduce((s, d) => s + d.amount, 0);
-    debts
-    .filter((d) => d.toUserId === userId)
-    .reduce((s, d) => s + d.amount, 0);
-    // net: monthly (passed from the page, not recomputed from all-time debts)
-    const net = globalBalance.net;
 
-    // Names for the balance subtitle
-    const owedToNames = debts
+  const owedToNames = debts
     .filter((d) => d.fromUserId === userId)
     .map((d) => firstWord(d.toProfile?.display_name ?? ""))
     .join(", ");
-    const owedByNames = debts
+  const owedByNames = debts
     .filter((d) => d.toUserId === userId)
     .map((d) => firstWord(d.fromProfile?.display_name ?? ""))
     .join(", ");
 
-    // Group subtitle line (header)
-    const groupSubtitle = !multiMember
-        ? "Solo tú"
-        : group.members.length === 2
-            ? `Tú y ${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")}`
-            : `${group.members.length} integrantes`;
+  const groupSubtitle = !multiMember
+    ? "Solo tú"
+    : group.members.length === 2
+    ? `Tú y ${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")}`
+    : `${group.members.length} integrantes`;
 
     return (
         <div className={styles.page}>
@@ -227,10 +283,35 @@ export default function GroupDetail({
             </header>
 
             <div className={styles.content}>
+                {/* ── Month picker ──────────────────────────────────────────── */}
+                <div className={styles.monthPicker}>
+                  <button
+                    className={styles.monthArrow}
+                    onClick={prevMonth}
+                    disabled={!canGoPrev}
+                    aria-label="Mes anterior"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                  <span className={styles.monthLabel}>{monthLabel(selectedMonth)}</span>
+                  <button
+                    className={styles.monthArrow}
+                    onClick={nextMonth}
+                    disabled={!canGoNext}
+                    aria-label="Mes siguiente"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <path d="M7 4l5 5-5 5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+
                 {/* ── Balance card (multi only) ─────────────────────────────── */}
                 {multiMember && (
                     <div className={styles.balanceCard}>
-                        <p className={styles.balanceEyebrow}>Balance este mes</p>
+                        <p className={styles.balanceEyebrow}>Balance</p>
                         <p className={styles.balanceAmount}>
                             {net === 0
                                 ? formatCLP(totalExpenses)
@@ -322,16 +403,18 @@ export default function GroupDetail({
                         </Link>
                     </div>
 
-                    {expenses.length === 0 ? (
+                    {filteredExpenses.length === 0 ? (
                         <div className={styles.emptyExpenses}>
-                            <p className={styles.emptyTitle}>Sin gastos aún</p>
+                            <p className={styles.emptyTitle}>Sin gastos este mes</p>
                             <p className={styles.emptySub}>
-                                Añade el primer gasto del grupo.
+                              {selectedMonth === currentMonthKey
+                                ? "Añade el primer gasto del mes."
+                                : "No hubo gastos en este período."}
                             </p>
                         </div>
                     ) : (
                         <div className={styles.expenseList}>
-                            {expenses.map((expense) => {
+                            {filteredExpenses.map((expense) => {
                                 const myShare = expense.splits.find(
                                     (s) => s.user_id === userId
                                 )?.amount;

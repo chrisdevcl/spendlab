@@ -91,9 +91,6 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
   }, []);
 
   // ── Notifications ─────────────────────────────────────────────────────────
-  // Track subscription state separately from browser permission:
-  //   - permission: what the browser reports (granted/denied/default)
-  //   - isSubscribed: whether there's an active push subscription in PushManager
   const [notifPermission, setNotifPermission] =
     useState<NotificationPermission | null>(() =>
       typeof window !== "undefined" && "Notification" in window
@@ -102,80 +99,96 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [notifErr, setNotifErr] = useState("");
   const notifSupported =
     typeof window !== "undefined" &&
     "Notification" in window &&
     "PushManager" in window &&
+    "serviceWorker" in navigator &&
     !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-  // Check subscription status on mount
+  // On mount: scan all SW registrations for an active push subscription.
+  // Uses getRegistrations() (immediate, no wait) instead of ready (can hang).
   useEffect(() => {
-    if (!notifSupported || typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.getRegistration().then((reg) => {
-      if (!reg) return;
-      reg.pushManager.getSubscription().then((sub) => {
-        setIsSubscribed(!!sub);
-      }).catch(() => {});
+    if (!notifSupported) return;
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) {
+        reg.pushManager.getSubscription().then((sub) => {
+          if (sub) setIsSubscribed(true);
+        }).catch(() => {});
+      }
     }).catch(() => {});
   }, [notifSupported]);
 
-  // Helper: get SW registration with timeout to avoid hanging in PWA
-  function getSwRegistration(timeoutMs = 5000): Promise<ServiceWorkerRegistration> {
+  // Get an active SW registration. Tries getRegistration() first (instant),
+  // then falls back to .ready (waits for activation, 10 s timeout).
+  async function getSwReg(): Promise<ServiceWorkerRegistration> {
+    // Fast path: check all registrations for one with an active SW
+    const regs = await navigator.serviceWorker.getRegistrations();
+    const active = regs.find((r) => r.active);
+    if (active) return active;
+
+    // Slow path: wait for SW to become active (handles fresh installs / updates)
     return Promise.race([
       navigator.serviceWorker.ready,
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("SW timeout")), timeoutMs)
+        setTimeout(() => reject(new Error("El service worker no está disponible. Recarga la app e intenta de nuevo.")), 10_000)
       ),
     ]);
   }
 
   async function enableNotifications() {
-    if (!notifSupported) return;
+    setNotifErr("");
     setNotifLoading(true);
     try {
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
       if (permission !== "granted") { setNotifLoading(false); return; }
 
-      const reg = await getSwRegistration();
+      const reg = await getSwReg();
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(
-            process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
-          ),
+          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
         });
       }
-      await fetch("/api/push/subscribe", {
+      const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
       });
+      if (!res.ok) throw new Error("Error al guardar suscripción");
       setIsSubscribed(true);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al activar notificaciones";
+      setNotifErr(msg);
       console.error("[enableNotifications]", err);
     }
     setNotifLoading(false);
   }
 
   async function disableNotifications() {
-    if (!notifSupported) return;
+    setNotifErr("");
     setNotifLoading(true);
     try {
-      const reg = await getSwRegistration();
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await fetch("/api/push/subscribe", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: sub.endpoint }),
-        });
-        await sub.unsubscribe();
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) {
+        const sub = await reg.pushManager.getSubscription().catch(() => null);
+        if (sub) {
+          await fetch("/api/push/subscribe", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
       }
       setIsSubscribed(false);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al desactivar notificaciones";
+      setNotifErr(msg);
       console.error("[disableNotifications]", err);
     }
     setNotifLoading(false);
@@ -384,6 +397,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                   </button>
                 )}
               </div>
+              {notifErr && <p className={styles.notifError}>{notifErr}</p>}
             </div>
           </section>
         )}
