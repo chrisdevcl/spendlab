@@ -488,37 +488,33 @@
 .monthPicker {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.25rem 0 0.75rem;
+  gap: 0.5rem;
+  padding: 0.25rem 0 0.875rem;
 }
 
-.monthLabel {
+.monthIcon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.monthSelect {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
   font-size: 0.9375rem;
   font-weight: 600;
+  font-family: inherit;
   color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
   text-transform: capitalize;
-  letter-spacing: -0.01em;
 }
 
-.monthArrow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border: none;
-  background: transparent;
+.monthChevron {
   color: var(--color-text-muted);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-  -webkit-tap-highlight-color: transparent;
-}
-.monthArrow:hover:not(:disabled) {
-  background: var(--color-bg-muted);
-  color: var(--color-text);
-}
-.monthArrow:disabled {
-  opacity: 0.25;
-  cursor: default;
+  flex-shrink: 0;
+  pointer-events: none;
 }

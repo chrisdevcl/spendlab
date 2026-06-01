@@ -248,3 +248,38 @@
   max-width: 240px;
   line-height: 1.5;
 }
+
+/* ── Month picker ─────────────────────────────────────────────────────────── */
+.monthPicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 0.875rem;
+}
+
+.monthIcon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.monthSelect {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  text-transform: capitalize;
+}
+
+.monthChevron {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  pointer-events: none;
+}

@@ -4,7 +4,7 @@ import { getAllUserExpenses } from "@/lib/services/expenses.service";
 import { computeGlobalBalance } from "@/lib/utils/balance";
 import ActivityList from "./_components/activity-list";
 import type { ExpenseWithDetails, GlobalBalance } from "@/types";
-import type { Profile } from "@/types/database.types";
+import type { Profile, Settlement } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -83,55 +83,14 @@ const MOCK_GLOBAL_BALANCE: GlobalBalance = {
   ],
 };
 
-// ── Date grouping ─────────────────────────────────────────────────────────────
-
-export interface DateGroup {
-  label: string;
-  expenses: ExpenseWithDetails[];
-}
-
-function groupByDate(expenses: ExpenseWithDetails[]): DateGroup[] {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-
-  const ordered: string[] = []; // label insertion order
-  const map = new Map<string, ExpenseWithDetails[]>();
-
-  for (const expense of expenses) {
-    const date = expense.expense_date;
-    let label: string;
-
-    if (date === today) {
-      label = "Hoy";
-    } else if (date === yesterday) {
-      label = "Ayer";
-    } else if (date > weekStart) {
-      label = "Esta semana";
-    } else {
-      // "mayo 2025" → capitalise first letter
-      const d = new Date(`${date}T12:00:00`);
-      const raw = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
-      label = raw.charAt(0).toUpperCase() + raw.slice(1);
-    }
-
-    if (!map.has(label)) {
-      ordered.push(label);
-      map.set(label, []);
-    }
-    map.get(label)!.push(expense);
-  }
-
-  return ordered.map((label) => ({ label, expenses: map.get(label)! }));
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ActivityPage() {
   if (DEV_MODE) {
     return (
       <ActivityList
-        groups={groupByDate(MOCK_EXPENSES)}
+        expenses={MOCK_EXPENSES}
+        settlements={[]}
         globalBalance={MOCK_GLOBAL_BALANCE}
         userId="u1"
       />
@@ -148,21 +107,22 @@ export default async function ActivityPage() {
   if (!expenses || expenses.length === 0) {
     return (
       <ActivityList
-        groups={[]}
+        expenses={[]}
+        settlements={[]}
         globalBalance={{ net: 0, debts: [] }}
         userId={user.id}
       />
     );
   }
 
-  // Collect group IDs to fetch settlements
   const groupIds = [...new Set(expenses.map((e) => e.group_id))];
-  const { data: settlements } = await supabase
+  const { data: settlementsRaw } = await supabase
     .from("settlements")
     .select("*")
     .in("group_id", groupIds);
+  const settlements = (settlementsRaw ?? []) as Settlement[];
 
-  // Build profile map from all payers + split profiles
+  // Build profile map
   const profileMap = new Map<string, Profile>();
   for (const exp of expenses) {
     if (exp.payer) profileMap.set(exp.payer.id, exp.payer);
@@ -174,17 +134,9 @@ export default async function ActivityPage() {
   const allUserIds = [...profileMap.keys()];
   const allSplits = expenses.flatMap((e) => e.splits);
 
-  // Debts use ALL-TIME data — outstanding amounts between users regardless of month
-  const rawBalance = computeGlobalBalance(
-    expenses,
-    allSplits,
-    settlements ?? [],
-    user.id,
-    allUserIds
-  );
-
+  // Debts: all-time outstanding amounts
+  const rawBalance = computeGlobalBalance(expenses, allSplits, settlements, user.id, allUserIds);
   const globalBalance: GlobalBalance = {
-    // net is unused in ActivityList (totals are computed per-month in the component)
     net: rawBalance.net,
     debts: rawBalance.debts.map((d) => ({
       ...d,
@@ -195,7 +147,8 @@ export default async function ActivityPage() {
 
   return (
     <ActivityList
-      groups={groupByDate(expenses)}
+      expenses={expenses}
+      settlements={settlements}
       globalBalance={globalBalance}
       userId={user.id}
     />

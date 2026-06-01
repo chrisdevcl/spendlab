@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { ExpenseWithDetails, GlobalBalance } from "@/types";
+import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import type { DateGroup } from "../page";
 import styles from "./activity-list.module.css";
 
 interface Props {
-  groups: DateGroup[];
-  globalBalance: GlobalBalance;
+  expenses: ExpenseWithDetails[];
+  settlements: Settlement[];
+  globalBalance: GlobalBalance; // all-time debts, pre-enriched with profiles
   userId: string;
 }
 
@@ -17,32 +18,90 @@ function firstWord(name: string): string {
   return name?.split(" ")[0] ?? name;
 }
 
+function toMonthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  const raw = new Date(y, m - 1, 1).toLocaleDateString("es-CL", {
+    month: "long",
+    year: "numeric",
+  });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+// Group a flat list of expenses by date label
+function groupByDate(
+  expenses: ExpenseWithDetails[]
+): { label: string; expenses: ExpenseWithDetails[] }[] {
+  const today     = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+
+  const ordered: string[] = [];
+  const map = new Map<string, ExpenseWithDetails[]>();
+
+  for (const expense of expenses) {
+    const date = expense.expense_date;
+    let label: string;
+
+    if (date === today) {
+      label = "Hoy";
+    } else if (date === yesterday) {
+      label = "Ayer";
+    } else if (date > weekStart) {
+      label = "Esta semana";
+    } else {
+      const d = new Date(`${date}T12:00:00`);
+      const raw = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+      label = raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+
+    if (!map.has(label)) {
+      ordered.push(label);
+      map.set(label, []);
+    }
+    map.get(label)!.push(expense);
+  }
+
+  return ordered.map((label) => ({ label, expenses: map.get(label)! }));
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ActivityList({ groups, globalBalance, userId }: Props) {
+export default function ActivityList({ expenses, globalBalance, userId }: Props) {
   const { debts } = globalBalance;
   const [debtExpanded, setDebtExpanded] = useState(false);
 
-  // Monthly totals — only expenses from the current calendar month
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const monthStartDate = monthStart.toISOString().slice(0, 10);
+  // ── Month picker ────────────────────────────────────────────────────────────
+  const currentMonthKey = toMonthKey(new Date());
 
-  const monthExpenses = groups
-    .flatMap((g) => g.expenses)
-    .filter((e) => e.expense_date >= monthStartDate);
+  const availableMonths = useMemo(() => {
+    const keys = new Set<string>();
+    keys.add(currentMonthKey);
+    expenses.forEach((e) => keys.add(e.expense_date.slice(0, 7)));
+    return [...keys].sort().reverse();
+  }, [expenses, currentMonthKey]);
 
-  const totalExpenses = monthExpenses.length;
-  const totalAmount   = monthExpenses.reduce((s, e) => s + e.amount, 0);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
+  const showPicker = availableMonths.length > 1;
 
-  // Debts (iOwe / theyOwe) are all-time — show regardless of month
+  // ── Filtered + grouped expenses ─────────────────────────────────────────────
+  const filteredExpenses = useMemo(
+    () => expenses.filter((e) => e.expense_date.slice(0, 7) === selectedMonth),
+    [expenses, selectedMonth]
+  );
+
+  const groups = useMemo(() => groupByDate(filteredExpenses), [filteredExpenses]);
+
+  // Monthly totals
+  const totalExpenses = filteredExpenses.length;
+  const totalAmount   = filteredExpenses.reduce((s, e) => s + e.amount, 0);
+
+  // All-time debts
   const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
-
-  // Current month label
-  const monthLabel = new Date().toLocaleDateString("es-CL", { month: "long" }).toUpperCase();
 
   return (
     <div className={styles.page}>
@@ -60,7 +119,7 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
         >
           <div className={styles.balanceHeader}>
             <p className={styles.balanceEyebrow}>
-              {monthLabel} · {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"}
+              {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"} · {formatCLP(totalAmount)}
             </p>
             {debts.length > 0 && (
               <svg
@@ -71,7 +130,6 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
               </svg>
             )}
           </div>
-          <p className={styles.balanceAmount}>{formatCLP(totalAmount)}</p>
 
           {(iOwe > 0 || theyOwe > 0) && (
             <div className={styles.balanceRow}>
@@ -90,13 +148,12 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
             </div>
           )}
 
-          {/* Expanded debt breakdown */}
           {debtExpanded && debts.length > 0 && (
             <div className={styles.debtBreakdown}>
               <div className={styles.debtDivider} />
               {debts.map((debt, i) => {
                 const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
-                const toName = firstWord(debt.toProfile?.display_name ?? debt.toUserId);
+                const toName   = firstWord(debt.toProfile?.display_name   ?? debt.toUserId);
                 return (
                   <div key={i} className={styles.debtItem}>
                     <span className={styles.debtItemNames}>{fromName} → {toName}</span>
@@ -108,21 +165,47 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
           )}
         </button>
 
-        {/* ── Expense groups ───────────────────────────────────────────── */}
+        {/* ── Month picker ─────────────────────────────────────────────── */}
+        {showPicker && (
+          <div className={styles.monthPicker}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className={styles.monthIcon} aria-hidden="true">
+              <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M5 1v3M11 1v3M2 6h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            <select
+              className={styles.monthSelect}
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+            >
+              {availableMonths.map((key) => (
+                <option key={key} value={key}>{monthLabel(key)}</option>
+              ))}
+            </select>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
+              <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+        )}
+
+        {/* ── Expense list ─────────────────────────────────────────────── */}
         {totalExpenses === 0 ? (
           <div className={styles.empty}>
             <p className={styles.emptyIcon}>🧾</p>
-            <p className={styles.emptyTitle}>Sin gastos todavía</p>
+            <p className={styles.emptyTitle}>
+              {selectedMonth === currentMonthKey ? "Sin gastos todavía" : "Sin gastos este mes"}
+            </p>
             <p className={styles.emptyBody}>
-              Los gastos de tus grupos aparecerán aquí.
+              {selectedMonth === currentMonthKey
+                ? "Los gastos de tus grupos aparecerán aquí."
+                : "No hubo gastos registrados en este período."}
             </p>
           </div>
         ) : (
-          groups.map(({ label, expenses }) => (
+          groups.map(({ label, expenses: groupExpenses }) => (
             <section key={label} className={styles.group}>
               <p className={styles.groupLabel}>{label}</p>
               <div className={styles.expenseList}>
-                {expenses.map((expense) => (
+                {groupExpenses.map((expense) => (
                   <ExpenseRow key={expense.id} expense={expense} userId={userId} />
                 ))}
               </div>
@@ -136,16 +219,9 @@ export default function ActivityList({ groups, globalBalance, userId }: Props) {
 
 // ── Expense row ───────────────────────────────────────────────────────────────
 
-function ExpenseRow({
-  expense,
-  userId,
-}: {
-  expense: ExpenseWithDetails;
-  userId: string;
-}) {
+function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: string }) {
   const myShare = expense.splits.find((s) => s.user_id === userId)?.amount;
 
-  // Right-side meta: who paid / what's your share
   const rightMeta =
     expense.paid_by === userId
       ? "pagaste tú"
@@ -155,29 +231,15 @@ function ExpenseRow({
 
   return (
     <Link href={`/activity/${expense.id}`} className={styles.expenseRow}>
-      {/* Left: description + group badge */}
       <div className={styles.expenseLeft}>
         <p className={styles.expenseDesc}>{expense.description}</p>
         <span className={styles.groupBadge}>{expense.group.name}</span>
       </div>
-      {/* Right: amount+chevron / meta */}
       <div className={styles.expenseRight}>
         <div className={styles.expenseAmountRow}>
           <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
-          <svg
-            className={styles.expenseChevron}
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-          >
-            <path
-              d="M5 2.5l4.5 4.5L5 11.5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+          <svg className={styles.expenseChevron} width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
         <p className={styles.expenseRightMeta}>{rightMeta}</p>

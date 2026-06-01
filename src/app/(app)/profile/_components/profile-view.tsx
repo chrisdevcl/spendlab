@@ -21,28 +21,23 @@ interface Props {
   passkeys: PasskeyItem[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
-export default function ProfileView({ profile, stats, passkeys: initialPasskeys }: Props) {
+export default function ProfileView({ profile, stats, passkeys }: Props) {
   const router = useRouter();
+  const email  = profile?.email ?? "";
 
-  const email = profile?.email ?? "";
-
-  // ── Inline name editing ────────────────────────────────────────────────────
-  // displayName vive en estado local para poder actualizarse optimistamente
-  // sin esperar el re-render del Server Component.
+  // ── Name editing ────────────────────────────────────────────────────────────
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "Usuario");
-  const [editing, setEditing] = useState(false);
-  const [nameValue, setNameValue] = useState(displayName);
-  const [nameError, setNameError] = useState("");
+  const [editing, setEditing]         = useState(false);
+  const [nameValue, setNameValue]     = useState(displayName);
+  const [nameError, setNameError]     = useState("");
   const [isPendingName, startNameTransition] = useTransition();
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,8 +61,6 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
       if (result.error) {
         setNameError(result.error);
       } else {
-        // Actualización optimista: refleja el cambio inmediatamente
-        // sin esperar el ciclo completo de revalidación del servidor.
         setDisplayName(nameValue.trim());
         setEditing(false);
         router.refresh();
@@ -75,31 +68,19 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     });
   }
 
-  // ── Passkeys (count badge only — management is in /profile/passkeys) ──────
-  const passkeyCount = initialPasskeys.length;
+  // ── Passkeys ────────────────────────────────────────────────────────────────
+  // Computed synchronously — PublicKeyCredential is available in all modern browsers
   const [passkeySupported, setPasskeySupported] = useState(false);
-
   useEffect(() => {
-    if (
-      typeof window !== "undefined" &&
-      typeof PublicKeyCredential !== "undefined"
-    ) {
-      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-        .then(setPasskeySupported)
-        .catch(() => setPasskeySupported(false));
-    }
+    if (typeof PublicKeyCredential === "undefined") return;
+    PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+      .then(setPasskeySupported)
+      .catch(() => {});
   }, []);
 
-  // ── Notifications ─────────────────────────────────────────────────────────
-  const [notifPermission, setNotifPermission] =
-    useState<NotificationPermission | null>(() =>
-      typeof window !== "undefined" && "Notification" in window
-        ? Notification.permission
-        : null
-    );
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [notifLoading, setNotifLoading] = useState(false);
-  const [notifErr, setNotifErr] = useState("");
+  const passkeyCount = passkeys.length;
+
+  // ── Notifications ────────────────────────────────────────────────────────────
   const notifSupported =
     typeof window !== "undefined" &&
     "Notification" in window &&
@@ -107,34 +88,49 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     "serviceWorker" in navigator &&
     !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-  // On mount: scan all SW registrations for an active push subscription.
-  // Uses getRegistrations() (immediate, no wait) instead of ready (can hang).
+  const [notifPermission, setNotifPermission] =
+    useState<NotificationPermission | null>(() =>
+      typeof window !== "undefined" && "Notification" in window
+        ? Notification.permission
+        : null
+    );
+  const [isSubscribed, setIsSubscribed]     = useState(false);
+  const [notifLoading, setNotifLoading]     = useState(false);
+  const [notifErr, setNotifErr]             = useState("");
+  // null = still checking, true/false = resolved
+  const [swReady, setSwReady]               = useState<boolean | null>(
+    notifSupported ? null : false
+  );
+
+  // Detect SW registration and existing subscription on mount.
+  // controllerchange fires when SW finishes installing → re-check.
   useEffect(() => {
     if (!notifSupported) return;
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      for (const reg of regs) {
-        reg.pushManager.getSubscription().then((sub) => {
-          if (sub) setIsSubscribed(true);
-        }).catch(() => {});
+
+    async function syncSwState() {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        setSwReady(regs.length > 0);
+        for (const reg of regs) {
+          const sub = await reg.pushManager.getSubscription().catch(() => null);
+          if (sub) { setIsSubscribed(true); return; }
+        }
+      } catch {
+        setSwReady(false);
       }
-    }).catch(() => {});
+    }
+
+    syncSwState();
+    navigator.serviceWorker.addEventListener("controllerchange", syncSwState);
+    return () => {
+      navigator.serviceWorker.removeEventListener("controllerchange", syncSwState);
+    };
   }, [notifSupported]);
 
-  // Get an active SW registration. Tries getRegistration() first (instant),
-  // then falls back to .ready (waits for activation, 10 s timeout).
   async function getSwReg(): Promise<ServiceWorkerRegistration> {
-    // Fast path: check all registrations for one with an active SW
-    const regs = await navigator.serviceWorker.getRegistrations();
-    const active = regs.find((r) => r.active);
-    if (active) return active;
-
-    // Slow path: wait for SW to become active (handles fresh installs / updates)
-    return Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("El service worker no está disponible. Recarga la app e intenta de nuevo.")), 10_000)
-      ),
-    ]);
+    const regs  = await navigator.serviceWorker.getRegistrations();
+    const found = regs.find((r) => r.active);
+    return found ?? navigator.serviceWorker.ready;
   }
 
   async function enableNotifications() {
@@ -143,10 +139,10 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     try {
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
-      if (permission !== "granted") { setNotifLoading(false); return; }
+      if (permission !== "granted") return;
 
       const reg = await getSwReg();
-      let sub = await reg.pushManager.getSubscription();
+      let sub   = await reg.pushManager.getSubscription();
       if (!sub) {
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
         sub = await reg.pushManager.subscribe({
@@ -155,18 +151,21 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
         });
       }
       const res = await fetch("/api/push/subscribe", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sub.toJSON()),
+        body:    JSON.stringify(sub.toJSON()),
       });
-      if (!res.ok) throw new Error("Error al guardar suscripción");
-      setIsSubscribed(true);
+      if (res.ok) {
+        setIsSubscribed(true);
+      } else {
+        setNotifErr("Error al guardar suscripción");
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al activar notificaciones";
-      setNotifErr(msg);
+      setNotifErr(err instanceof Error ? err.message : "Error al activar notificaciones");
       console.error("[enableNotifications]", err);
+    } finally {
+      setNotifLoading(false);
     }
-    setNotifLoading(false);
   }
 
   async function disableNotifications() {
@@ -176,25 +175,24 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const reg of regs) {
         const sub = await reg.pushManager.getSubscription().catch(() => null);
-        if (sub) {
-          await fetch("/api/push/subscribe", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ endpoint: sub.endpoint }),
-          });
-          await sub.unsubscribe();
-        }
+        if (!sub) continue;
+        await fetch("/api/push/subscribe", {
+          method:  "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
       }
       setIsSubscribed(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al desactivar notificaciones";
-      setNotifErr(msg);
+      setNotifErr(err instanceof Error ? err.message : "Error al desactivar notificaciones");
       console.error("[disableNotifications]", err);
+    } finally {
+      setNotifLoading(false);
     }
-    setNotifLoading(false);
   }
 
-  // ── Theme toggle ──────────────────────────────────────────────────────────
+  // ── Theme ────────────────────────────────────────────────────────────────────
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     try {
@@ -212,17 +210,15 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     setCurrentTheme(t);
   }
 
-  // ── Sign out ───────────────────────────────────────────────────────────────
+  // ── Sign out ─────────────────────────────────────────────────────────────────
   const [isPendingSignOut, startSignOutTransition] = useTransition();
 
   function handleSignOut() {
-    startSignOutTransition(async () => {
-      await signOut();
-    });
+    startSignOutTransition(() => signOut());
   }
 
-  // ── Delete account modal ───────────────────────────────────────────────────
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  // ── Delete account ────────────────────────────────────────────────────────────
+  const [deleteOpen, setDeleteOpen]   = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [isPendingDelete, startDeleteTransition] = useTransition();
 
@@ -234,9 +230,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
 
   useEffect(() => {
     if (!deleteOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeDelete();
-    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDelete(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [deleteOpen, closeDelete]);
@@ -248,21 +242,18 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     });
   }
 
-  // ── Stat card config ───────────────────────────────────────────────────────
+  // ── Balance variant ──────────────────────────────────────────────────────────
   const netVariant =
-    stats.netBalance === 0
-      ? "neutral"
-      : stats.netBalance > 0
-      ? "positive"
-      : "negative";
+    stats.netBalance === 0 ? "neutral" : stats.netBalance > 0 ? "positive" : "negative";
 
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className={styles.page}>
       <div className={styles.content}>
-        {/* ── Avatar + identity ──────────────────────────────────────── */}
+
+        {/* Avatar + identity */}
         <div className={styles.identitySection}>
           <div className={styles.avatar}>{initials(displayName)}</div>
-
           {editing ? (
             <div className={styles.nameEditRow}>
               <input
@@ -272,29 +263,16 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                 value={nameValue}
                 maxLength={60}
                 disabled={isPendingName}
-                onChange={(e) => {
-                  setNameValue(e.target.value);
-                  if (nameError) setNameError("");
-                }}
+                onChange={(e) => { setNameValue(e.target.value); if (nameError) setNameError(""); }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") saveName();
+                  if (e.key === "Enter")  saveName();
                   if (e.key === "Escape") cancelEdit();
                 }}
               />
               {nameError && <p className={styles.fieldError}>{nameError}</p>}
               <div className={styles.nameActions}>
-                <button
-                  className={styles.nameCancel}
-                  onClick={cancelEdit}
-                  disabled={isPendingName}
-                >
-                  Cancelar
-                </button>
-                <button
-                  className={styles.nameSave}
-                  onClick={saveName}
-                  disabled={isPendingName || !nameValue.trim()}
-                >
+                <button className={styles.nameCancel} onClick={cancelEdit} disabled={isPendingName}>Cancelar</button>
+                <button className={styles.nameSave} onClick={saveName} disabled={isPendingName || !nameValue.trim()}>
                   {isPendingName ? "Guardando…" : "Guardar"}
                 </button>
               </div>
@@ -307,14 +285,12 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           )}
         </div>
 
-        {/* ── Stats grid 2×2 ────────────────────────────────────────── */}
+        {/* Stats 2×2 */}
         <p className={styles.sectionLabel} style={{ marginBottom: "0.625rem" }}>Resumen total</p>
         <div className={styles.statsGrid}>
           <div className={styles.statCard}>
             <p className={styles.statLabel}>Total pagado</p>
-            <p className={styles.statValue}>
-              {formatCLP(stats.totalPaid)}
-            </p>
+            <p className={styles.statValue}>{formatCLP(stats.totalPaid)}</p>
           </div>
           <div className={styles.statCard}>
             <p className={styles.statLabel}>Gastos registrados</p>
@@ -336,27 +312,17 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           </div>
         </div>
 
-        {/* ── Apariencia ────────────────────────────────────────────── */}
+        {/* Apariencia */}
         <section className={styles.section}>
           <p className={styles.sectionLabel}>Apariencia</p>
           <div className={styles.themeToggle}>
-            <button
-              className={`${styles.themeBtn} ${currentTheme === "light" ? styles.themeBtnActive : ""}`}
-              onClick={() => applyTheme("light")}
-            >
-              Claro
-            </button>
-            <button
-              className={`${styles.themeBtn} ${currentTheme === "dark" ? styles.themeBtnActive : ""}`}
-              onClick={() => applyTheme("dark")}
-            >
-              Oscuro
-            </button>
+            <button className={`${styles.themeBtn} ${currentTheme === "light" ? styles.themeBtnActive : ""}`} onClick={() => applyTheme("light")}>Claro</button>
+            <button className={`${styles.themeBtn} ${currentTheme === "dark"  ? styles.themeBtnActive : ""}`} onClick={() => applyTheme("dark")}>Oscuro</button>
           </div>
         </section>
 
-        {/* ── Notificaciones ────────────────────────────────────────── */}
-        {notifSupported && (
+        {/* Notificaciones — solo si hay SW registrado */}
+        {notifSupported && swReady === true && (
           <section className={styles.section}>
             <p className={styles.sectionLabel}>Notificaciones</p>
             <div className={styles.accountList}>
@@ -370,29 +336,19 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                 <div className={styles.notifInfo}>
                   <span className={styles.rowLabel}>Notificaciones push</span>
                   <span className={styles.notifStatus}>
-                    {notifPermission === "denied"
-                      ? "Bloqueadas por el navegador"
-                      : isSubscribed
-                      ? "Activadas"
+                    {notifPermission === "denied" ? "Bloqueadas por el navegador"
+                      : isSubscribed ? "Activadas"
                       : "Desactivadas"}
                   </span>
                 </div>
                 {notifPermission === "denied" ? (
                   <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
                 ) : isSubscribed ? (
-                  <button
-                    className={styles.notifBtnOff}
-                    onClick={disableNotifications}
-                    disabled={notifLoading}
-                  >
+                  <button className={styles.notifBtnOff} onClick={disableNotifications} disabled={notifLoading}>
                     {notifLoading ? "…" : "Desactivar"}
                   </button>
                 ) : (
-                  <button
-                    className={styles.notifBtnOn}
-                    onClick={enableNotifications}
-                    disabled={notifLoading}
-                  >
+                  <button className={styles.notifBtnOn} onClick={enableNotifications} disabled={notifLoading}>
                     {notifLoading ? "…" : "Activar"}
                   </button>
                 )}
@@ -402,7 +358,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           </section>
         )}
 
-        {/* ── Passkeys — nav link to /profile/passkeys ──────────────── */}
+        {/* Seguridad — passkeys */}
         {passkeySupported && (
           <section className={styles.section}>
             <p className={styles.sectionLabel}>Seguridad</p>
@@ -429,24 +385,17 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           </section>
         )}
 
-        {/* ── Account section ───────────────────────────────────────── */}
+        {/* Cuenta */}
         <section className={styles.section}>
           <p className={styles.sectionLabel}>Cuenta</p>
           <div className={styles.accountList}>
-            {/* Editar nombre */}
             <button
               className={styles.accountRow}
               onClick={() => { if (!editing) { setNameValue(displayName); setEditing(true); } }}
             >
               <div className={styles.rowIcon}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <path
-                    d="M13 2.5a1.414 1.414 0 0 1 2 2L5.5 14 2 15l1-3.5L13 2.5Z"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="M13 2.5a1.414 1.414 0 0 1 2 2L5.5 14 2 15l1-3.5L13 2.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
               <span className={styles.rowLabel}>Editar nombre</span>
@@ -454,27 +403,13 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                 <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-
-            {/* Cerrar sesión */}
-            <button
-              className={styles.accountRow}
-              onClick={handleSignOut}
-              disabled={isPendingSignOut}
-            >
+            <button className={styles.accountRow} onClick={handleSignOut} disabled={isPendingSignOut}>
               <div className={styles.rowIcon}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <path
-                    d="M12 12l4-4-4-4M16 8H7M10 3H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="M12 12l4-4-4-4M16 8H7M10 3H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-              <span className={styles.rowLabel}>
-                {isPendingSignOut ? "Cerrando sesión…" : "Cerrar sesión"}
-              </span>
+              <span className={styles.rowLabel}>{isPendingSignOut ? "Cerrando sesión…" : "Cerrar sesión"}</span>
               <svg className={styles.rowChevron} width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -482,46 +417,23 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           </div>
         </section>
 
-        {/* ── Delete account ─────────────────────────────────────────── */}
-        <button
-          className={styles.deleteBtn}
-          onClick={() => setDeleteOpen(true)}
-        >
+        <button className={styles.deleteBtn} onClick={() => setDeleteOpen(true)}>
           Eliminar cuenta
         </button>
       </div>
 
-      {/* ── Delete confirm modal ─────────────────────────────────────── */}
+      {/* Delete modal */}
       {deleteOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={closeDelete}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Confirmar eliminación de cuenta"
-        >
+        <div className={styles.backdrop} onClick={closeDelete} role="dialog" aria-modal="true" aria-label="Confirmar eliminación de cuenta">
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <p className={styles.modalTitle}>¿Eliminar cuenta?</p>
             <p className={styles.modalBody}>
-              Esta acción es irreversible. Se eliminarán todos tus datos,
-              grupos y gastos asociados a esta cuenta.
+              Esta acción es irreversible. Se eliminarán todos tus datos, grupos y gastos asociados a esta cuenta.
             </p>
-            {deleteError && (
-              <p className={styles.modalError}>{deleteError}</p>
-            )}
+            {deleteError && <p className={styles.modalError}>{deleteError}</p>}
             <div className={styles.modalActions}>
-              <button
-                className={styles.btnCancel}
-                onClick={closeDelete}
-                disabled={isPendingDelete}
-              >
-                Cancelar
-              </button>
-              <button
-                className={styles.btnDelete}
-                onClick={handleDelete}
-                disabled={isPendingDelete}
-              >
+              <button className={styles.btnCancel} onClick={closeDelete} disabled={isPendingDelete}>Cancelar</button>
+              <button className={styles.btnDelete} onClick={handleDelete} disabled={isPendingDelete}>
                 {isPendingDelete ? "Eliminando…" : "Eliminar"}
               </button>
             </div>

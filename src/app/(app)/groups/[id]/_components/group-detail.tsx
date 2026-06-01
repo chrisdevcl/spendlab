@@ -80,17 +80,7 @@ export default function GroupDetail({
 
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
 
-  function prevMonth() {
-    const idx = availableMonths.indexOf(selectedMonth);
-    if (idx < availableMonths.length - 1) setSelectedMonth(availableMonths[idx + 1]);
-  }
-  function nextMonth() {
-    const idx = availableMonths.indexOf(selectedMonth);
-    if (idx > 0) setSelectedMonth(availableMonths[idx - 1]);
-  }
-
-  const canGoPrev = availableMonths.indexOf(selectedMonth) < availableMonths.length - 1;
-  const canGoNext = availableMonths.indexOf(selectedMonth) > 0;
+  const showPicker = availableMonths.length > 1;
 
   // ── Month-filtered data ────────────────────────────────────────────────────
   const filteredExpenses = useMemo(
@@ -103,21 +93,28 @@ export default function GroupDetail({
     [settlements, selectedMonth]
   );
 
-  // Compute balance for selected month
-  const { net, debts } = useMemo(() => {
-    const memberIds = group.members.map((m) => m.id);
-    const profileMap = new Map(group.members.map((m) => [m.id, m]));
+  const memberIds = group.members.map((m) => m.id);
+  const profileMap = new Map(group.members.map((m) => [m.id, m]));
+
+  // Monthly net — only for the balance card (how much moved this month)
+  const { net } = useMemo(() => {
     const splits = filteredExpenses.flatMap((e) => e.splits);
-    const raw = computeGlobalBalance(filteredExpenses, splits, filteredSettlements, userId, memberIds);
-    return {
-      net: raw.net,
-      debts: raw.debts.map((d) => ({
-        ...d,
-        fromProfile: profileMap.get(d.fromUserId),
-        toProfile: profileMap.get(d.toUserId),
-      })),
-    };
-  }, [filteredExpenses, filteredSettlements, group.members, userId]);
+    return computeGlobalBalance(filteredExpenses, splits, filteredSettlements, userId, memberIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredExpenses, filteredSettlements, userId]);
+
+  // All-time debts — always shown regardless of selected month
+  // This is the real outstanding balance: who owes who overall
+  const debts = useMemo(() => {
+    const allSplits = expenses.flatMap((e) => e.splits);
+    const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
+    return raw.debts.map((d) => ({
+      ...d,
+      fromProfile: profileMap.get(d.fromUserId),
+      toProfile: profileMap.get(d.toUserId),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenses, settlements, userId]);
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -284,29 +281,28 @@ export default function GroupDetail({
 
             <div className={styles.content}>
                 {/* ── Month picker ──────────────────────────────────────────── */}
-                <div className={styles.monthPicker}>
-                  <button
-                    className={styles.monthArrow}
-                    onClick={prevMonth}
-                    disabled={!canGoPrev}
-                    aria-label="Mes anterior"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                      <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                {showPicker && (
+                  <div className={styles.monthPicker}>
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className={styles.monthIcon} aria-hidden="true">
+                      <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                      <path d="M5 1v3M11 1v3M2 6h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                     </svg>
-                  </button>
-                  <span className={styles.monthLabel}>{monthLabel(selectedMonth)}</span>
-                  <button
-                    className={styles.monthArrow}
-                    onClick={nextMonth}
-                    disabled={!canGoNext}
-                    aria-label="Mes siguiente"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                      <path d="M7 4l5 5-5 5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                    <select
+                      className={styles.monthSelect}
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                    >
+                      {availableMonths.map((key) => (
+                        <option key={key} value={key}>
+                          {monthLabel(key)}
+                        </option>
+                      ))}
+                    </select>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
+                      <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                  </button>
-                </div>
+                  </div>
+                )}
 
                 {/* ── Balance card (multi only) ─────────────────────────────── */}
                 {multiMember && (
