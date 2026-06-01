@@ -18,20 +18,79 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem var(--page-padding);
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.625rem var(--page-padding);
   flex-shrink: 0;
 }
 
-.headerCenter {
-  flex: 1;
-  text-align: center;
+/* Group selector pill (left) */
+.groupSelector {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: var(--color-bg-surface);
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 0 0.875rem 0 0.375rem;
+  height: 44px;
+  cursor: pointer;
   min-width: 0;
+  flex: 1;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s;
+}
+.groupSelector:active { background: var(--color-bg-muted); }
+
+.groupAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.groupSelectorInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.groupSelectorName {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.groupSelectorSub {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.groupSelectorChevron {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
 }
 
 .iconBtn {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   background: var(--color-bg-muted);
   border: none;
@@ -42,43 +101,32 @@
   cursor: pointer;
   flex-shrink: 0;
   transition: opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 .iconBtn:active { opacity: 0.6; }
 
-.groupName {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
+.iconBtnBell {
+  composes: iconBtn;
+  position: relative;
 }
 
-.groupSubtitle {
-  font-size: 0.8125rem;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 0.1rem;
-}
-
-.inviteBtn {
-  padding: 0.4rem 0.875rem;
-  background: transparent;
-  border: 1px solid var(--color-border-strong);
+.bellBadge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
   border-radius: var(--radius-full);
-  color: var(--color-text);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background-color 0.15s;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
 }
-.inviteBtn:hover { background: var(--color-bg-muted); }
 
 /* ── Balance card (multi-member, always teal) ───────────────────────────── */
 .balanceCard {
@@ -587,6 +635,247 @@
   justify-content: center;
   font-size: 1.375rem;
   font-weight: 700;
+}
+
+/* ── Balance chips (for selector list) ──────────────────────────────────── */
+.chipPositive {
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--color-positive-bg);
+  color: var(--color-positive);
+}
+
+.chipNegative {
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--color-negative-bg);
+  color: var(--color-negative);
+}
+
+.chipNeutral {
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--color-bg-muted);
+  color: var(--color-text-hint);
+}
+
+/* ── Group selector sheet ───────────────────────────────────────────────── */
+.selectorSheet {
+  width: 100%;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.selectorTitle {
+  font-family: var(--font-serif), serif;
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 1rem;
+}
+
+.selectorList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-bottom: 0.75rem;
+}
+
+.selectorRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  border-radius: var(--radius-md);
+}
+
+.selectorRowActive .selectorName { color: var(--color-primary); }
+
+/* Left link area (avatar + info) */
+.selectorRowLink {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  padding: 0.25rem 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.selectorAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.selectorInfo { flex: 1; min-width: 0; }
+
+.selectorName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.selectorMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+}
+
+/* Right action icons */
+.selectorRowActions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.selectorActionBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s, color 0.12s;
+}
+.selectorActionBtn:hover { background: var(--color-bg-muted); color: var(--color-text); }
+
+.selectorActionBtnDanger {
+  composes: selectorActionBtn;
+  color: var(--color-negative);
+}
+.selectorActionBtnDanger:hover { background: var(--color-negative-bg); color: var(--color-negative); }
+
+.selectorNewBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.9375rem;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s;
+}
+.selectorNewBtn:active { opacity: 0.75; }
+
+/* ── Notification sheet ─────────────────────────────────────────────────── */
+.notifSheet {
+  width: 100%;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.notifTitle {
+  font-family: var(--font-serif), serif;
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 1rem;
+}
+
+.notifSubLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 0.875rem;
+}
+
+.notifEmpty {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 0.5rem 0 1rem;
+}
+
+.notifCard {
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.notifCardName {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 0.2rem;
+}
+
+.notifCardMeta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.875rem;
+}
+
+.notifCardActions {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.notifCardActions .btnCancel {
+  flex: 1;
+  padding: 0.6875rem;
+}
+
+.notifCardActions .btnConfirm {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.6875rem;
 }
 
 /* ── Month picker ─────────────────────────────────────────────────────────── */

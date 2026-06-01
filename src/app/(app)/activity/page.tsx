@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAllUserExpenses } from "@/lib/services/expenses.service";
 import { computeGlobalBalance } from "@/lib/utils/balance";
 import ActivityList from "./_components/activity-list";
-import type { ExpenseWithDetails, GlobalBalance } from "@/types";
+import type { ExpenseWithDetails, GlobalBalance, PendingInvitation } from "@/types";
 import type { Profile, Settlement } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -93,6 +93,7 @@ export default async function ActivityPage() {
         settlements={[]}
         globalBalance={MOCK_GLOBAL_BALANCE}
         userId="u1"
+        invitations={[]}
       />
     );
   }
@@ -103,7 +104,13 @@ export default async function ActivityPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const expenses = await getAllUserExpenses(user.id);
+  const [expenses, { data: invitationsRaw }] = await Promise.all([
+    getAllUserExpenses(user.id),
+    supabase.rpc("get_pending_invitations"),
+  ]);
+
+  const invitations = (invitationsRaw ?? []) as PendingInvitation[];
+
   if (!expenses || expenses.length === 0) {
     return (
       <ActivityList
@@ -111,6 +118,7 @@ export default async function ActivityPage() {
         settlements={[]}
         globalBalance={{ net: 0, debts: [] }}
         userId={user.id}
+        invitations={invitations}
       />
     );
   }
@@ -151,6 +159,7 @@ export default async function ActivityPage() {
       settlements={settlements}
       globalBalance={globalBalance}
       userId={user.id}
+      invitations={invitations}
     />
   );
 }

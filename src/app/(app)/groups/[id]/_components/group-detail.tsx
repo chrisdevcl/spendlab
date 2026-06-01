@@ -10,11 +10,11 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import type { GroupWithMembers, ExpenseWithDetails } from "@/types";
+import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation } from "@/types";
 import type { Profile, Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
-import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction } from "../actions";
+import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
 interface Props {
@@ -23,6 +23,8 @@ interface Props {
   settlements: Settlement[];
   userId: string;
   profile: Profile | null;
+  allGroups: GroupWithMembers[];
+  invitations: PendingInvitation[];
 }
 
 // YYYY-MM string for a given Date
@@ -64,6 +66,8 @@ export default function GroupDetail({
   expenses,
   settlements,
   userId,
+  allGroups,
+  invitations,
 }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -126,6 +130,7 @@ export default function GroupDetail({
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteTargetGroupId, setInviteTargetGroupId] = useState(group.id);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState(false);
@@ -139,7 +144,8 @@ export default function GroupDetail({
     }
   }, [inviteOpen]);
 
-  function openInvite() {
+  function openInvite(targetGroupId = group.id) {
+    setInviteTargetGroupId(targetGroupId);
     setInviteEmail("");
     setInviteError("");
     setInviteSuccess(false);
@@ -153,7 +159,7 @@ export default function GroupDetail({
 
   function handleInvite() {
     startInviteTransition(async () => {
-      const result = await inviteMemberToGroup(group.id, inviteEmail);
+      const result = await inviteMemberToGroup(inviteTargetGroupId, inviteEmail);
       if (result.error) {
         setInviteError(result.error);
       } else {
@@ -236,15 +242,65 @@ export default function GroupDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [inviteOpen, closeInvite]);
 
+  // ── Group selector modal ────────────────────────────────────────────────────
+  const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
+
+  // ── Notification modal ──────────────────────────────────────────────────────
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // ── Create group (from selector modal) ─────────────────────────────────────
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [createGroupName, setCreateGroupName] = useState("");
+  const [createGroupError, setCreateGroupError] = useState("");
+  const [isPendingCreateGroup, startCreateGroupTransition] = useTransition();
+  const createGroupInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (createGroupOpen) {
+      const t = setTimeout(() => createGroupInputRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [createGroupOpen]);
+
+  function handleCreateGroup() {
+    const trimmed = createGroupName.trim();
+    if (!trimmed) { setCreateGroupError("El nombre no puede estar vacío"); return; }
+    startCreateGroupTransition(async () => {
+      const result = await createGroupAction(trimmed, userId);
+      if (result.error) {
+        setCreateGroupError(result.error);
+      } else {
+        setCreateGroupOpen(false);
+        setGroupSelectorOpen(false);
+        if (result.group) router.push(`/groups/${result.group.id}`);
+        else router.refresh();
+      }
+    });
+  }
+
   // ── Delete group ───────────────────────────────────────────────────────────
   const [deleteGroupOpen, setDeleteGroupOpen] = useState(false);
+  const [deleteTargetGroupId, setDeleteTargetGroupId] = useState(group.id);
+  const [deleteTargetGroupName, setDeleteTargetGroupName] = useState(group.name);
   const [isPendingDeleteGroup, startDeleteGroupTransition] = useTransition();
+
+  function openDeleteGroup(targetId = group.id, targetName = group.name) {
+    setDeleteTargetGroupId(targetId);
+    setDeleteTargetGroupName(targetName);
+    setDeleteGroupOpen(true);
+  }
 
   function handleDeleteGroup() {
     startDeleteGroupTransition(async () => {
-      await deleteGroupAction(group.id);
+      await deleteGroupAction(deleteTargetGroupId);
       router.refresh();
-      router.replace("/groups");
+      // If deleting current group, navigate away; otherwise stay
+      if (deleteTargetGroupId === group.id) {
+        router.replace("/groups");
+      } else {
+        setDeleteGroupOpen(false);
+        router.refresh();
+      }
     });
   }
 
@@ -264,22 +320,28 @@ export default function GroupDetail({
         <div className={styles.page}>
             {/* ── Header ─────────────────────────────────────────────────────── */}
             <header className={styles.header}>
-                <button className={styles.iconBtn} onClick={() => router.back()} aria-label="Volver">
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <path d="M12.5 16L7 10L12.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                {/* Group selector pill */}
+                <button className={styles.groupSelector} onClick={() => setGroupSelectorOpen(true)} aria-label="Cambiar grupo">
+                    <div className={styles.groupAvatar}>
+                        {group.name[0]?.toUpperCase() ?? "G"}
+                    </div>
+                    <div className={styles.groupSelectorInfo}>
+                        <span className={styles.groupSelectorName}>{group.name}</span>
+                        <span className={styles.groupSelectorSub}>{groupSubtitle}</span>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.groupSelectorChevron} aria-hidden="true">
+                        <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                 </button>
-                <div className={styles.headerCenter}>
-                    <h1 className={styles.groupName}>{group.name}</h1>
-                    <p className={styles.groupSubtitle}>{groupSubtitle}</p>
-                </div>
-                <button className={styles.inviteBtn} onClick={openInvite}>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                      <circle cx="6" cy="4.5" r="2.5" stroke="currentColor" strokeWidth="1.3"/>
-                      <path d="M1.5 12c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                      <path d="M11 2v4M9 4h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+
+                <button className={styles.iconBtnBell} onClick={() => setNotifOpen(true)} aria-label="Notificaciones">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <path d="M9 2a5.5 5.5 0 0 1 5.5 5.5c0 3 .9 4.5 1.5 5H2c.6-.5 1.5-2 1.5-5A5.5 5.5 0 0 1 9 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                        <path d="M7 15a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                     </svg>
-                    Invitar
+                    {invitations.length > 0 && (
+                        <span className={styles.bellBadge}>{invitations.length}</span>
+                    )}
                 </button>
             </header>
 
@@ -456,18 +518,6 @@ export default function GroupDetail({
                         </div>
                     )}
                 </section>
-
-                {/* ── Danger zone — only for group creator ──────────────────────── */}
-                {group.created_by === userId && (
-                    <div className={styles.dangerSection}>
-                        <button
-                            className={styles.btnDeleteGroup}
-                            onClick={() => setDeleteGroupOpen(true)}
-                        >
-                            Eliminar grupo
-                        </button>
-                    </div>
-                )}
             </div>
 
             {/* ── Delete group modal ───────────────────────────────────────────── */}
@@ -482,7 +532,7 @@ export default function GroupDetail({
                     <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
                         <p className={styles.modalTitle}>¿Eliminar grupo?</p>
                         <p className={styles.modalSub}>
-                            Se eliminarán todos los gastos y datos de &ldquo;{group.name}&rdquo;.
+                            Se eliminarán todos los gastos y datos de &ldquo;{deleteTargetGroupName}&rdquo;.
                             Esta acción no se puede deshacer.
                         </p>
                         <div className={styles.modalActions}>
@@ -619,12 +669,206 @@ export default function GroupDetail({
                     </div>
                 </div>
             )}
+
+            {/* ── Group selector modal ─────────────────────────────────────────── */}
+            {groupSelectorOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={() => setGroupSelectorOpen(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Cambiar grupo"
+                >
+                    <div className={styles.selectorSheet} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.selectorTitle}>Tus grupos</p>
+                        <div className={styles.selectorList}>
+                            {allGroups.map((g) => (
+                                <div key={g.id} className={`${styles.selectorRow} ${g.id === group.id ? styles.selectorRowActive : ""}`}>
+                                    {/* Left: navigate */}
+                                    <Link
+                                        href={`/groups/${g.id}`}
+                                        className={styles.selectorRowLink}
+                                        onClick={() => setGroupSelectorOpen(false)}
+                                    >
+                                        <div className={styles.selectorAvatar}>{g.name[0]?.toUpperCase() ?? "G"}</div>
+                                        <div className={styles.selectorInfo}>
+                                            <p className={styles.selectorName}>{g.name}</p>
+                                            <p className={styles.selectorMeta}>
+                                                {g.members.length === 1 ? "Solo tú" : `${g.members.length} integrantes`}
+                                                {g.members.length > 1 && <GroupBalanceChip balance={g.balance} />}
+                                            </p>
+                                        </div>
+                                    </Link>
+                                    {/* Right: actions */}
+                                    <div className={styles.selectorRowActions}>
+                                        <button
+                                            className={styles.selectorActionBtn}
+                                            onClick={(e) => { e.stopPropagation(); setGroupSelectorOpen(false); openInvite(g.id); }}
+                                            aria-label={`Invitar a ${g.name}`}
+                                        >
+                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                <circle cx="7" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.4"/>
+                                                <path d="M1.5 14c0-3.038 2.462-5.5 5.5-5.5s5.5 2.462 5.5 5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                                <path d="M12.5 2v5M10 4.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                            </svg>
+                                        </button>
+                                        {g.created_by === userId && (
+                                            <button
+                                                className={styles.selectorActionBtnDanger}
+                                                onClick={(e) => { e.stopPropagation(); setGroupSelectorOpen(false); openDeleteGroup(g.id, g.name); }}
+                                                aria-label={`Eliminar ${g.name}`}
+                                            >
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M2.5 4.5h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                                    <path d="M6 4.5V3h4v1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    <path d="M4 4.5l.75 9h6.5l.75-9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <button
+                            className={styles.selectorNewBtn}
+                            onClick={() => { setGroupSelectorOpen(false); setCreateGroupName(""); setCreateGroupError(""); setCreateGroupOpen(true); }}
+                        >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                            </svg>
+                            Nuevo grupo
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Create group modal (launched from selector) ──────────────────── */}
+            {createGroupOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={() => { if (!isPendingCreateGroup) setCreateGroupOpen(false); }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Nuevo grupo"
+                >
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.modalTitle}>Nuevo grupo</p>
+                        <input
+                            ref={createGroupInputRef}
+                            className={styles.modalInput}
+                            type="text"
+                            placeholder="Nombre del grupo"
+                            value={createGroupName}
+                            maxLength={60}
+                            disabled={isPendingCreateGroup}
+                            onChange={(e) => { setCreateGroupName(e.target.value); if (createGroupError) setCreateGroupError(""); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); }}
+                        />
+                        {createGroupError && <p className={styles.modalError}>{createGroupError}</p>}
+                        <div className={styles.modalActions}>
+                            <button className={styles.btnCancel} onClick={() => setCreateGroupOpen(false)} disabled={isPendingCreateGroup}>Cancelar</button>
+                            <button className={styles.btnConfirm} onClick={handleCreateGroup} disabled={isPendingCreateGroup || !createGroupName.trim()}>
+                                {isPendingCreateGroup ? "Creando…" : "Crear"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Notification modal ───────────────────────────────────────────── */}
+            {notifOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={() => setNotifOpen(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Notificaciones"
+                >
+                    <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.notifTitle}>Notificaciones</p>
+                        {invitations.length > 0 ? (
+                            <>
+                                <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
+                                {invitations.map((inv) => (
+                                    <NotifInvCard
+                                        key={inv.id}
+                                        invitation={inv}
+                                        onDone={() => { router.refresh(); setNotifOpen(false); }}
+                                    />
+                                ))}
+                            </>
+                        ) : (
+                            <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
 
-// ── Utils ─────────────────────────────────────────────────────────────────────
+// ── Notification invitation card ──────────────────────────────────────────────
+
+function NotifInvCard({
+  invitation,
+  onDone,
+}: {
+  invitation: PendingInvitation;
+  onDone: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [invError, setInvError] = useState("");
+
+  function handleAccept() {
+    setInvError("");
+    startTransition(async () => {
+      const result = await acceptInvitation(invitation.id);
+      if (result.error) setInvError(result.error);
+      else onDone();
+    });
+  }
+
+  function handleReject() {
+    setInvError("");
+    startTransition(async () => {
+      const result = await rejectInvitation(invitation.id, invitation.group_id);
+      if (result.error) setInvError(result.error);
+      else onDone();
+    });
+  }
+
+  const memberLabel = invitation.member_count === 1 ? "1 integrante" : `${invitation.member_count} integrantes`;
+
+  return (
+    <div className={styles.notifCard}>
+      <p className={styles.notifCardName}>{invitation.group_name}</p>
+      <p className={styles.notifCardMeta}>Te invitó {invitation.inviter_name} · {memberLabel}</p>
+      {invError && <p className={styles.modalError}>{invError}</p>}
+      <div className={styles.notifCardActions}>
+        <button className={styles.btnCancel} onClick={handleReject} disabled={isPending}>Rechazar</button>
+        <button className={styles.btnConfirm} onClick={handleAccept} disabled={isPending}>
+          {isPending ? "…" : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Aceptar
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function GroupBalanceChip({ balance }: { balance: number }) {
+  if (balance === 0) return <span className={styles.chipNeutral}>Sin deudas</span>;
+  if (balance > 0)   return <span className={styles.chipPositive}>+{formatCLP(balance)}</span>;
+  return <span className={styles.chipNegative}>{formatCLP(balance)}</span>;
+}
 
 /** Format a raw digit string as CLP for display inside an input */
 function formatCLPInput(raw: string): string {

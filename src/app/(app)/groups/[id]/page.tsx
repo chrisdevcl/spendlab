@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getGroup } from "@/lib/services/groups.service";
+import { getGroup, getMyGroups } from "@/lib/services/groups.service";
 import {
   getGroupExpenses,
-  getGroupSplits,
   getGroupSettlements,
 } from "@/lib/services/expenses.service";
+import { computeGroupBalance } from "@/lib/utils/balance";
 import GroupDetail from "./_components/group-detail";
-import type { GroupWithMembers, ExpenseWithDetails } from "@/types";
-import type { Profile, Settlement } from "@/types/database.types";
+import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation } from "@/types";
+import type { Profile, Settlement, Expense, ExpenseSplit } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -114,6 +114,8 @@ export default async function GroupDetailPage({
         settlements={[]}
         userId="u1"
         profile={MOCK_PROFILE}
+        allGroups={[MOCK_GROUP]}
+        invitations={[]}
       />
     );
   }
@@ -124,17 +126,43 @@ export default async function GroupDetailPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Parallel fetch: group metadata + all expense data
-  const [group, expenses, splits, settlements, { data: profile }] =
+  // Parallel fetch: current group + all user groups + invitations + expense data
+  const [group, allGroupsRaw, expenses, settlements, { data: profile }, { data: invitationsRaw }] =
     await Promise.all([
       getGroup(id),
+      getMyGroups(user.id),
       getGroupExpenses(id),
-      getGroupSplits(id),
       getGroupSettlements(id),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
+      supabase.rpc("get_pending_invitations"),
     ]);
 
   if (!group) redirect("/groups");
+
+  // Compute balances for all groups
+  const groupIds = (allGroupsRaw ?? []).map((g) => g.id);
+  const [{ data: allExpenses }, { data: allSettlements }] = await Promise.all([
+    groupIds.length
+      ? supabase.from("expenses").select("*").in("group_id", groupIds)
+      : Promise.resolve({ data: [] as Expense[] }),
+    groupIds.length
+      ? supabase.from("settlements").select("*").in("group_id", groupIds)
+      : Promise.resolve({ data: [] as Settlement[] }),
+  ]);
+
+  const expenseIds = (allExpenses ?? []).map((e) => e.id);
+  const { data: allSplits } = expenseIds.length
+    ? await supabase.from("expense_splits").select("*").in("expense_id", expenseIds)
+    : { data: [] as ExpenseSplit[] };
+
+  const allGroups: GroupWithMembers[] = (allGroupsRaw ?? []).map((g) => {
+    const gExpenses = (allExpenses ?? []).filter((e): e is Expense => e.group_id === g.id);
+    const gSplits   = (allSplits   ?? []).filter((s): s is ExpenseSplit => gExpenses.some((e) => e.id === s.expense_id));
+    const gSettle   = (allSettlements ?? []).filter((s): s is Settlement => s.group_id === g.id);
+    return { ...g, balance: computeGroupBalance(gExpenses, gSplits, gSettle, user.id) };
+  });
+
+  const invitations = (invitationsRaw ?? []) as PendingInvitation[];
 
   return (
     <GroupDetail
@@ -143,6 +171,8 @@ export default async function GroupDetailPage({
       settlements={(settlements ?? []) as Settlement[]}
       userId={user.id}
       profile={profile}
+      allGroups={allGroups}
+      invitations={invitations}
     />
   );
 }

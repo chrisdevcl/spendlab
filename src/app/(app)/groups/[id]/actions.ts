@@ -6,8 +6,11 @@ import { createSettlement as createSettlementService } from "@/lib/services/expe
 import {
   inviteMember as inviteMemberService,
   deleteGroup as deleteGroupService,
+  createGroup as createGroupService,
 } from "@/lib/services/groups.service";
 import { sendInvitationEmail } from "@/lib/email/invitation";
+
+const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function createSettlement(
   groupId: string,
@@ -17,8 +20,7 @@ export async function createSettlement(
 ): Promise<{ error?: string }> {
   if (amount <= 0) return { error: "El monto debe ser mayor a 0" };
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    // Dev mode: simulate success
+  if (DEV_MODE) {
     return {};
   }
 
@@ -44,7 +46,7 @@ export async function inviteMemberToGroup(
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed))
     return { error: "Email inválido" };
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  if (DEV_MODE) {
     return {};
   }
 
@@ -81,7 +83,7 @@ export async function inviteMemberToGroup(
 export async function deleteGroup(
   groupId: string
 ): Promise<{ error?: string }> {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return {};
+  if (DEV_MODE) return {};
 
   const supabase = await createClient();
   const {
@@ -91,6 +93,91 @@ export async function deleteGroup(
 
   const ok = await deleteGroupService(groupId);
   if (!ok) return { error: "Error al eliminar el grupo. Intenta de nuevo." };
+
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function createGroup(
+  name: string,
+  _userId: string
+): Promise<{ group?: { id: string } | null; error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "El nombre no puede estar vacío" };
+
+  if (DEV_MODE) return { group: { id: "g1" } };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { group, error: svcErr } = await createGroupService(trimmed, user.id);
+  if (!group) return { error: svcErr ?? "Error al crear el grupo. Intenta de nuevo." };
+
+  revalidatePath("/groups");
+  return { group };
+}
+
+export async function acceptInvitation(
+  invitationId: string
+): Promise<{ error?: string }> {
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("email").eq("id", user.id).single();
+
+  const { data: inv } = await supabase
+    .from("group_invitations")
+    .select("id, group_id, accepted_at, expires_at, invited_email")
+    .eq("id", invitationId).single();
+
+  if (!inv) return { error: "Invitación no encontrada" };
+  if (inv.accepted_at) return { error: "Invitación ya aceptada" };
+  if (new Date(inv.expires_at) < new Date()) return { error: "Invitación expirada" };
+  if (inv.invited_email !== profile?.email) return { error: "No autorizado" };
+
+  const { error: memberErr } = await supabase
+    .from("group_members").insert({ group_id: inv.group_id, user_id: user.id });
+  if (memberErr && memberErr.code !== "23505") return { error: "Error al unirse al grupo" };
+
+  await supabase
+    .from("group_invitations")
+    .update({ accepted_at: new Date().toISOString() })
+    .eq("id", invitationId);
+
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function rejectInvitation(
+  invitationId: string,
+  groupId: string
+): Promise<{ error?: string }> {
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("email").eq("id", user.id).single();
+
+  await supabase
+    .from("group_invitations")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("invited_email", profile?.email ?? "")
+    .is("accepted_at", null);
 
   revalidatePath("/groups");
   return {};

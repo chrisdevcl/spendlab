@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import type { ExpenseWithDetails, GlobalBalance } from "@/types";
+import type { ExpenseWithDetails, GlobalBalance, PendingInvitation } from "@/types";
 import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import styles from "./activity-list.module.css";
@@ -10,8 +10,9 @@ import styles from "./activity-list.module.css";
 interface Props {
   expenses: ExpenseWithDetails[];
   settlements: Settlement[];
-  globalBalance: GlobalBalance; // all-time debts, pre-enriched with profiles
+  globalBalance: GlobalBalance;
   userId: string;
+  invitations: PendingInvitation[];
 }
 
 function firstWord(name: string): string {
@@ -68,9 +69,10 @@ function groupByDate(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ActivityList({ expenses, globalBalance, userId }: Props) {
+export default function ActivityList({ expenses, globalBalance, userId, invitations }: Props) {
   const { debts } = globalBalance;
   const [debtExpanded, setDebtExpanded] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   // ── Month picker ────────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
@@ -106,6 +108,19 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className={styles.header}>
         <h1 className={styles.heading}>Actividad</h1>
+        <button
+          className={styles.bellBtn}
+          onClick={() => setNotifOpen(true)}
+          aria-label={`Notificaciones${invitations.length > 0 ? ` · ${invitations.length}` : ""}`}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 2a6 6 0 0 1 6 6c0 3.5 1 5 1.5 5.5h-15C3 13 4 11.5 4 8a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M8 16.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          {invitations.length > 0 && (
+            <span className={styles.bellBadge}>{invitations.length}</span>
+          )}
+        </button>
       </header>
 
       <div className={styles.content}>
@@ -230,6 +245,39 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
           ))
         )}
       </div>
+
+      {/* ── Notifications bottom sheet ────────────────────────────────── */}
+      {notifOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={() => setNotifOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Notificaciones"
+        >
+          <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.notifTitle}>Notificaciones</p>
+            {invitations.length > 0 ? (
+              <>
+                <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
+                {invitations.map((inv) => (
+                  <div key={inv.id} className={styles.invCard}>
+                    <p className={styles.invGroupName}>{inv.group_name}</p>
+                    <p className={styles.invMeta}>
+                      Te invitó {inv.inviter_name} · {inv.member_count === 1 ? "1 integrante" : `${inv.member_count} integrantes`}
+                    </p>
+                    <Link href="/groups" className={styles.invLink} onClick={() => setNotifOpen(false)}>
+                      Ver en Grupos →
+                    </Link>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -151,7 +151,8 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
     });
   }
 
-  const firstName = profile?.display_name?.split(" ")[0] ?? "tú";
+  const [notifOpen, setNotifOpen] = useState(false);
+
   const hasInvitations = invitations.length > 0;
   const hasGroups = groups.length > 0;
   const isEmpty = !hasInvitations && !hasGroups;
@@ -169,12 +170,19 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
     <div className={styles.page}>
       {/* ── Header ────────────────────────────────────────────────── */}
       <header className={styles.header}>
-        <div>
-          <p className={styles.greetingLabel}>Hola</p>
-          <h1 className={styles.greeting}>{firstName}</h1>
-        </div>
-        <button className={styles.btnCreate} onClick={openModal}>
-          + Grupo
+        <h1 className={styles.heading}>Grupos</h1>
+        <button
+          className={styles.bellBtn}
+          onClick={() => setNotifOpen(true)}
+          aria-label={`Notificaciones${hasInvitations ? ` · ${invitations.length}` : ""}`}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 2a6 6 0 0 1 6 6c0 3.5 1 5 1.5 5.5h-15C3 13 4 11.5 4 8a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M8 16.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          {hasInvitations && (
+            <span className={styles.bellBadge}>{invitations.length}</span>
+          )}
         </button>
       </header>
 
@@ -185,52 +193,25 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
             Activa notificaciones para saber cuando te inviten a un grupo
           </p>
           <div className={styles.pushBannerActions}>
-            <button
-              className={styles.pushBannerDismiss}
-              onClick={() => setPushDismissed(true)}
-            >
+            <button className={styles.pushBannerDismiss} onClick={() => setPushDismissed(true)}>
               Ahora no
             </button>
-            <button
-              className={styles.pushBannerAccept}
-              onClick={requestPushPermission}
-            >
+            <button className={styles.pushBannerAccept} onClick={requestPushPermission}>
               Activar
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Invitations section ───────────────────────────────────── */}
-      {hasInvitations && (
-        <section className={styles.section}>
-          <p className={styles.sectionLabel}>
-            INVITACIONES · {invitations.length}
-          </p>
-          <div className={styles.invList}>
-            {invitations.map((inv) => (
-              <InvitationCard
-                key={inv.id}
-                invitation={inv}
-                onDone={() => router.refresh()}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Groups section ────────────────────────────────────────── */}
+      {/* ── Groups list ───────────────────────────────────────────── */}
       {hasGroups && (
-        <section className={styles.section}>
-          <p className={styles.sectionLabel}>TUS GRUPOS</p>
-          <ul className={styles.list}>
-            {groups.map((group) => (
-              <li key={group.id}>
-                <GroupCard group={group} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        <ul className={styles.list}>
+          {groups.map((group) => (
+            <li key={group.id}>
+              <GroupCard group={group} />
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* ── Empty state ───────────────────────────────────────────── */}
@@ -241,6 +222,47 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
           <p className={styles.emptyBody}>
             Crea tu primer grupo para empezar a dividir gastos con otros.
           </p>
+        </div>
+      )}
+
+      {/* ── New group button (bottom) ─────────────────────────────── */}
+      <div className={styles.bottomActions}>
+        <button className={styles.btnNewGroup} onClick={openModal}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          Nuevo grupo
+        </button>
+      </div>
+
+      {/* ── Notifications bottom sheet ────────────────────────────── */}
+      {notifOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={() => setNotifOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Notificaciones"
+        >
+          <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.notifTitle}>Notificaciones</p>
+            {hasInvitations ? (
+              <>
+                <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
+                <div className={styles.invList}>
+                  {invitations.map((inv) => (
+                    <InvitationCard
+                      key={inv.id}
+                      invitation={inv}
+                      onDone={() => { router.refresh(); setNotifOpen(false); }}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -376,32 +398,16 @@ function GroupCard({ group }: { group: GroupWithMembers }) {
 
   return (
     <Link href={`/groups/${group.id}`} className={styles.card}>
+      <div className={styles.groupAvatarCircle}>
+        {group.name[0]?.toUpperCase() ?? "G"}
+      </div>
       <div className={styles.info}>
         <p className={styles.groupName}>{group.name}</p>
         <p className={styles.groupMeta}>
           {count === 1 ? "Solo tú" : `${count} integrantes`}
         </p>
       </div>
-
-      <BalanceChip balance={group.balance} />
-
-      {/* Chevron */}
-      <svg
-        className={styles.cardChevron}
-        width="16"
-        height="16"
-        viewBox="0 0 16 16"
-        fill="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M6 3l5 5-5 5"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      {count > 1 && <BalanceChip balance={group.balance} />}
     </Link>
   );
 }

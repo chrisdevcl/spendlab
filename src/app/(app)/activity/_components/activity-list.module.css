@@ -8,14 +8,129 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 1.5rem var(--page-padding) 0;
   flex-shrink: 0;
 }
 
 .heading {
+  font-family: var(--font-serif), serif;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+/* Bell button */
+.bellBtn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  border: none;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.bellBtn:active { opacity: 0.6; }
+
+.bellBadge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
+}
+
+/* ── Notification sheet ─────────────────────────────────────────────────── */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--page-padding);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+}
+
+.notifSheet {
+  width: 100%;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.notifTitle {
+  font-family: var(--font-serif), serif;
   font-size: 1.375rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 1rem;
+}
+
+.notifSubLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.notifEmpty {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 1rem 0;
+}
+
+/* ── Invitation card (in activity) ──────────────────────────────────────── */
+.invCard {
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.invGroupName {
+  font-size: 1rem;
   font-weight: 700;
   color: var(--color-text);
+  margin-bottom: 0.2rem;
+}
+
+.invMeta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.invLink {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
 }
 
 /* ── Scrollable content ─────────────────────────────────────────────────── */

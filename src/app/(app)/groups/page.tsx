@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyGroups } from "@/lib/services/groups.service";
-import { computeGroupBalance } from "@/lib/utils/balance";
 import type { GroupWithMembers, PendingInvitation } from "@/types";
-import type { Expense, ExpenseSplit, Settlement } from "@/types/database.types";
 import GroupsList from "./_components/groups-list";
 
 // ── Dev stub: render with mock data when Supabase is not yet configured ──
@@ -81,44 +79,11 @@ export default async function GroupsPage() {
 
   const invitations: PendingInvitation[] = (invitationsRaw ?? []) as PendingInvitation[];
 
-  if (!groups || groups.length === 0) {
-    return <GroupsList groups={[]} profile={profile} invitations={invitations} />;
+  // If user has groups, redirect to the most recent one
+  if (groups && groups.length > 0) {
+    redirect(`/groups/${groups[0].id}`);
   }
 
-  // Fetch ALL-TIME expenses/splits/settlements — group list chip shows outstanding balance
-  const groupIds = groups.map((g) => g.id);
-
-  const { data: allExpenses } = await supabase
-    .from("expenses")
-    .select("*")
-    .in("group_id", groupIds);
-
-  const expenseIds = (allExpenses ?? []).map((e) => e.id);
-
-  const [{ data: allSplits }, { data: allSettlements }] = await Promise.all([
-    expenseIds.length
-      ? supabase.from("expense_splits").select("*").in("expense_id", expenseIds)
-      : Promise.resolve({ data: [] as ExpenseSplit[] }),
-    supabase.from("settlements").select("*").in("group_id", groupIds),
-  ]);
-
-  // Compute balance per group and attach
-  const groupsWithBalance: GroupWithMembers[] = groups.map((group) => {
-    const expenses = (allExpenses ?? []).filter(
-      (e): e is Expense => e.group_id === group.id
-    );
-    const splits = (allSplits ?? []).filter((s): s is ExpenseSplit =>
-      expenses.some((e) => e.id === s.expense_id)
-    );
-    const settlements = (allSettlements ?? []).filter(
-      (s): s is Settlement => s.group_id === group.id
-    );
-
-    return {
-      ...group,
-      balance: computeGroupBalance(expenses, splits, settlements, user.id),
-    };
-  });
-
-  return <GroupsList groups={groupsWithBalance} profile={profile} invitations={invitations} />;
+  // No groups — show empty state
+  return <GroupsList groups={[]} profile={profile} invitations={invitations} />;
 }
