@@ -107,22 +107,12 @@ export default function GroupDetail({
   const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
 
-  // Cumulative balance through the selected month.
-  // We include all expenses and settlements that occurred UP TO AND INCLUDING
-  // the selected month. This way:
-  //   - Viewing Feb: shows the debt that existed at end of Feb
-  //   - Viewing Mar (where a Feb-debt was paid): debt -X + settlement +X = 0
-  //   - The settlement does NOT create a surplus in Mar because the debt is
-  //     already included in the cumulative sum.
+  // All-time outstanding balance — always uses every expense and settlement ever
+  // recorded, regardless of which month is selected. The month picker only
+  // filters the expense list below.
   const { net, debts } = useMemo(() => {
-    const expensesUpTo = expenses.filter(
-      (e) => e.expense_date.slice(0, 7) <= selectedMonth
-    );
-    const splitsUpTo = expensesUpTo.flatMap((e) => e.splits);
-    const settlementsUpTo = settlements.filter(
-      (s) => s.settled_at.slice(0, 7) <= selectedMonth
-    );
-    const raw = computeGlobalBalance(expensesUpTo, splitsUpTo, settlementsUpTo, userId, memberIds);
+    const allSplits = expenses.flatMap((e) => e.splits);
+    const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
     return {
       net: raw.net,
       debts: raw.debts.map((d) => ({
@@ -132,7 +122,7 @@ export default function GroupDetail({
       })),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenses, settlements, selectedMonth, userId]);
+  }, [expenses, settlements, userId]);
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -324,10 +314,10 @@ export default function GroupDetail({
                 {multiMember && (
                   <button
                     className={styles.balanceCard}
-                    onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtsExpanded((p) => !p)}
+                    onClick={() => debts.length > 1 && setDebtsExpanded((p) => !p)}
                     aria-expanded={debtsExpanded}
                   >
-                    {/* Top row: month pill + chevron */}
+                    {/* Top row: month pill + chevron (only when multiple debts to expand) */}
                     <div className={styles.balanceTopRow}>
                       {showPicker ? (
                         <div className={styles.monthPill} onClick={(e) => e.stopPropagation()}>
@@ -349,7 +339,7 @@ export default function GroupDetail({
                       ) : (
                         <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
                       )}
-                      {(iOwe > 0 || theyOwe > 0) && (
+                      {debts.length > 1 && (
                         <svg
                           className={`${styles.balanceChevron} ${debtsExpanded ? styles.balanceChevronUp : ""}`}
                           width="16" height="16" viewBox="0 0 16 16" fill="none"
@@ -363,25 +353,20 @@ export default function GroupDetail({
                       {net === 0 ? "$0" : net < 0 ? formatCLP(net) : `+${formatCLP(net)}`}
                     </p>
 
-                    {/* DEBES / TE DEBEN row */}
-                    {(iOwe > 0 || theyOwe > 0) && (
-                      <div className={styles.balanceDebtRow}>
-                        {iOwe > 0 && (
-                          <div className={styles.balanceDebtStat}>
-                            <span className={styles.balanceDebtLabel}>DEBES</span>
-                            <span className={styles.balanceDebtValue}>{formatCLP(iOwe)}</span>
-                          </div>
-                        )}
-                        {theyOwe > 0 && (
-                          <div className={styles.balanceDebtStat}>
-                            <span className={styles.balanceDebtLabel}>TE DEBEN</span>
-                            <span className={styles.balanceDebtValue}>{formatCLP(theyOwe)}</span>
-                          </div>
-                        )}
+                    {/* Divider + DEBES / TE DEBEN — always visible even at $0 */}
+                    <div className={styles.balanceDividerLine} />
+                    <div className={styles.balanceDebtRow}>
+                      <div className={styles.balanceDebtStat}>
+                        <span className={styles.balanceDebtLabel}>DEBES</span>
+                        <span className={styles.balanceDebtValue}>{formatCLP(iOwe)}</span>
                       </div>
-                    )}
+                      <div className={styles.balanceDebtStat}>
+                        <span className={styles.balanceDebtLabel}>TE DEBEN</span>
+                        <span className={styles.balanceDebtValue}>{formatCLP(theyOwe)}</span>
+                      </div>
+                    </div>
 
-                    {/* Expanded debt breakdown */}
+                    {/* Expanded breakdown (grupos con >2 miembros) */}
                     {debtsExpanded && debts.length > 0 && (
                       <div className={styles.balanceBreakdown}>
                         <div className={styles.balanceDivider} />
