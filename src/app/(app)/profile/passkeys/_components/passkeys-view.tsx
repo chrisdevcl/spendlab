@@ -258,11 +258,8 @@ export default function PasskeysView({ passkeys: initial }: Props) {
                 <path d="M9 4v10M4 9h10" />
               </svg>
             )}
-            {adding ? "Registrando…" : "Añadir passkey en este dispositivo"}
+            {adding ? "Registrando…" : "Añadir passkey"}
           </button>
-          <p className={styles.hint}>
-            Puedes registrar passkeys en varios dispositivos para acceder a tu cuenta sin contraseña.
-          </p>
         </section>
       </div>
     </div>

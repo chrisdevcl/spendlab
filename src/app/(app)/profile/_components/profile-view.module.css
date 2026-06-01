@@ -207,8 +207,7 @@
 
 .accountRow {
   width: 100%;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.9375rem 1rem;
@@ -238,6 +237,7 @@
 }
 
 .rowLabel {
+  flex: 1;
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--color-text);
