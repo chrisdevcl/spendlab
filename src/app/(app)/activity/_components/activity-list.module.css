@@ -121,8 +121,27 @@
   font-size: 0.875rem;
 }
 
-.debtItemNames { opacity: 0.85; }
+.debtItemNames { opacity: 0.85; flex: 1; }
 .debtItemAmount { font-weight: 600; }
+
+.balanceRegisterBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-full);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.balanceRegisterBtn:hover { background: rgba(255,255,255,0.28); }
 
 /* ── Date groups ────────────────────────────────────────────────────────── */
 .group {

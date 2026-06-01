@@ -112,14 +112,14 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
         {/* ── Global balance card ──────────────────────────────────────── */}
         <button
           className={styles.balanceCard}
-          onClick={() => debts.length > 0 && setDebtExpanded((p) => !p)}
+          onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtExpanded((p) => !p)}
           aria-expanded={debtExpanded}
         >
           <div className={styles.balanceHeader}>
             <p className={styles.balanceEyebrow}>
               {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"} · {formatCLP(totalAmount)}
             </p>
-            {debts.length > 0 && (
+            {(iOwe > 0 || theyOwe > 0) && (
               <svg
                 className={`${styles.chevron} ${debtExpanded ? styles.chevronUp : ""}`}
                 width="16" height="16" viewBox="0 0 16 16" fill="none"
@@ -133,13 +133,13 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
             <div className={styles.balanceRow}>
               {iOwe > 0 && (
                 <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>Debes</span>
+                  <span className={styles.balanceStatLabel}>DEBES</span>
                   <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
                 </div>
               )}
               {theyOwe > 0 && (
                 <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>Te deben</span>
+                  <span className={styles.balanceStatLabel}>TE DEBEN</span>
                   <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
                 </div>
               )}
@@ -160,6 +160,18 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
                 );
               })}
             </div>
+          )}
+
+          {iOwe > 0 && (
+            <button
+              className={styles.balanceRegisterBtn}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Registrar pago
+            </button>
           )}
         </button>
 

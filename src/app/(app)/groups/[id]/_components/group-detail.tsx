@@ -70,17 +70,28 @@ export default function GroupDetail({
 
   // ── Month picker ───────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
+  const storageKey = `spendlab_group_month_${group.id}`;
 
-  // Build sorted list of months that have expenses or settlements
   const availableMonths = useMemo(() => {
     const keys = new Set<string>();
     keys.add(currentMonthKey);
     expenses.forEach((e) => keys.add(e.expense_date.slice(0, 7)));
     settlements.forEach((s) => keys.add(s.settled_at.slice(0, 7)));
-    return [...keys].sort().reverse(); // most recent first
+    return [...keys].sort().reverse();
   }, [expenses, settlements, currentMonthKey]);
 
-  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
+  // Persist selected month in sessionStorage so navigating to expense detail
+  // and back restores the same month. Only resets to current on fresh entry.
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    if (typeof window === "undefined") return currentMonthKey;
+    const saved = sessionStorage.getItem(storageKey);
+    return saved && availableMonths.includes(saved) ? saved : currentMonthKey;
+  });
+
+  function handleMonthChange(month: string) {
+    setSelectedMonth(month);
+    if (typeof window !== "undefined") sessionStorage.setItem(storageKey, month);
+  }
 
   const showPicker = availableMonths.length > 1;
 
@@ -241,9 +252,9 @@ export default function GroupDetail({
 
   // ── Balance display values ─────────────────────────────────────────────────
   const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-  const iOwe = debts
-    .filter((d) => d.fromUserId === userId)
-    .reduce((s, d) => s + d.amount, 0);
+
+  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
+  const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
   const owedToNames = debts
     .filter((d) => d.fromUserId === userId)
@@ -253,6 +264,8 @@ export default function GroupDetail({
     .filter((d) => d.toUserId === userId)
     .map((d) => firstWord(d.fromProfile?.display_name ?? ""))
     .join(", ");
+
+  const [debtsExpanded, setDebtsExpanded] = useState(false);
 
   const groupSubtitle = !multiMember
     ? "Solo tú"
@@ -294,7 +307,7 @@ export default function GroupDetail({
                       <select
                         className={styles.monthSelectOverlay}
                         value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        onChange={(e) => handleMonthChange(e.target.value)}
                         aria-label="Seleccionar mes"
                       >
                         {availableMonths.map((key) => (
@@ -307,88 +320,86 @@ export default function GroupDetail({
 
                 {/* ── Balance card (multi only) ─────────────────────────────── */}
                 {multiMember && (
-                    <div className={styles.balanceCard}>
-                        <p className={styles.balanceEyebrow}>Balance</p>
-                        <p className={styles.balanceAmount}>
-                            {net === 0
-                                ? formatCLP(totalExpenses)
-                                : net < 0
-                                    ? formatCLP(net)
-                                    : `+${formatCLP(net)}`}
-                        </p>
-                        <p className={styles.balanceSub}>
-                            {net === 0
-                                ? totalExpenses > 0 ? "Todo al día ✓" : "Sin gastos aún"
-                                : net < 0
-                                    ? `Le debes a ${owedToNames}`
-                                    : `Te debe ${owedByNames}`}
-                        </p>
-                        {iOwe > 0 && (
-                            <button
-                                className={styles.balanceRegisterBtn}
-                                onClick={() => {
-                                    const debt = debts.find((d) => d.fromUserId === userId);
-                                    if (debt) openSettlement(debt.toUserId, firstWord(debt.toProfile?.display_name ?? ""), debt.amount);
-                                }}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                                    <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                Registrar pago
-                            </button>
-                        )}
+                  <button
+                    className={styles.balanceCard}
+                    onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtsExpanded((p) => !p)}
+                    aria-expanded={debtsExpanded}
+                  >
+                    <div className={styles.balanceHeader}>
+                      <p className={styles.balanceEyebrow}>Balance</p>
+                      {(iOwe > 0 || theyOwe > 0) && (
+                        <svg className={`${styles.balanceChevron} ${debtsExpanded ? styles.balanceChevronUp : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
                     </div>
-                )}
+                    <p className={styles.balanceAmount}>
+                      {net === 0
+                        ? formatCLP(totalExpenses)
+                        : net < 0
+                        ? formatCLP(net)
+                        : `+${formatCLP(net)}`}
+                    </p>
+                    <p className={styles.balanceSub}>
+                      {net === 0
+                        ? totalExpenses > 0 ? "Todo al día ✓" : "Sin gastos aún"
+                        : net < 0
+                        ? `Le debes a ${owedToNames}`
+                        : `Te debe ${owedByNames}`}
+                    </p>
 
-                {/* ── Debts section (multi-member only) ────────────────────────── */}
-                {multiMember && debts.length > 0 && (
-                    <section className={styles.section}>
-                        <div className={styles.sectionHead}>
-                            <span className={styles.eyebrow}>Deudas simplificadas</span>
-                        </div>
-                        <div className={styles.debtList}>
-                            {debts.map((debt, i) => {
-                                const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
-                                const toName = firstWord(debt.toProfile?.display_name ?? debt.toUserId);
-                                const isMyDebt = debt.fromUserId === userId;
-                                return (
-                                    <div key={i} className={styles.debtRow}>
-                                        <div className={styles.debtAvatars}>
-                                            <div className={styles.avatarSm}>
-                                                {(debt.fromProfile?.display_name ?? "?")[0].toUpperCase()}
-                                            </div>
-                                            <svg className={styles.arrow} width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                            </svg>
-                                            <div className={styles.avatarSm}>
-                                                {(debt.toProfile?.display_name ?? "?")[0].toUpperCase()}
-                                            </div>
-                                        </div>
-                                        <div className={styles.debtInfo}>
-                                            <p className={styles.debtNames}>
-                                                {fromName} → {toName}
-                                            </p>
-                                            <p className={styles.debtAmount}>{formatCLP(debt.amount)}</p>
-                                        </div>
-                                        {isMyDebt && (
-                                            <button
-                                                className={styles.payBtn}
-                                                onClick={() =>
-                                                    openSettlement(
-                                                        debt.toUserId,
-                                                        toName,
-                                                        debt.amount
-                                                    )
-                                                }
-                                            >
-                                                Pagar
-                                            </button>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </section>
+                    {/* DEBES / TE DEBEN row */}
+                    {(iOwe > 0 || theyOwe > 0) && (
+                      <div className={styles.balanceDebtRow}>
+                        {iOwe > 0 && (
+                          <div className={styles.balanceDebtStat}>
+                            <span className={styles.balanceDebtLabel}>DEBES</span>
+                            <span className={styles.balanceDebtValue}>{formatCLP(iOwe)}</span>
+                          </div>
+                        )}
+                        {theyOwe > 0 && (
+                          <div className={styles.balanceDebtStat}>
+                            <span className={styles.balanceDebtLabel}>TE DEBEN</span>
+                            <span className={styles.balanceDebtValue}>{formatCLP(theyOwe)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expanded debt breakdown */}
+                    {debtsExpanded && debts.length > 0 && (
+                      <div className={styles.balanceBreakdown}>
+                        <div className={styles.balanceDivider} />
+                        {debts.map((debt, i) => {
+                          const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
+                          const toName   = firstWord(debt.toProfile?.display_name   ?? debt.toUserId);
+                          return (
+                            <div key={i} className={styles.debtBreakdownRow}>
+                              <span className={styles.debtBreakdownNames}>{fromName} → {toName}</span>
+                              <span className={styles.debtBreakdownAmount}>{formatCLP(debt.amount)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Registrar pago */}
+                    {iOwe > 0 && (
+                      <button
+                        className={styles.balanceRegisterBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const debt = debts.find((d) => d.fromUserId === userId);
+                          if (debt) openSettlement(debt.toUserId, firstWord(debt.toProfile?.display_name ?? ""), debt.amount);
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                          <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Registrar pago
+                      </button>
+                    )}
+                  </button>
                 )}
 
                 {/* ── Expenses section ─────────────────────────────────────────── */}

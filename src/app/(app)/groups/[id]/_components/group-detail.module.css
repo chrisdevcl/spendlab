@@ -82,11 +82,24 @@
 
 /* ── Balance card (multi-member, always teal) ───────────────────────────── */
 .balanceCard {
+  width: 100%;
+  text-align: left;
   background: var(--color-primary);
   color: #fff;
+  border: none;
   border-radius: 20px;
   padding: 1.375rem 1.5rem;
   margin-bottom: 1.25rem;
+  cursor: default;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.balanceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
 }
 
 .balanceEyebrow {
@@ -95,8 +108,14 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   opacity: 0.78;
-  margin-bottom: 0.5rem;
 }
+
+.balanceChevron {
+  opacity: 0.78;
+  transition: transform 0.2s;
+  cursor: pointer;
+}
+.balanceChevronUp { transform: rotate(180deg); }
 
 .balanceAmount {
   font-family: var(--font-serif), serif;
@@ -111,6 +130,54 @@
   font-size: 0.9375rem;
   opacity: 0.9;
 }
+
+.balanceDebtRow {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(255,255,255,0.2);
+}
+
+.balanceDebtStat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.balanceDebtLabel {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  opacity: 0.72;
+}
+
+.balanceDebtValue {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.balanceBreakdown {
+  margin-top: 0.75rem;
+}
+
+.balanceDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.2);
+  margin-bottom: 0.75rem;
+}
+
+.debtBreakdownRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+  opacity: 0.9;
+  padding: 0.25rem 0;
+}
+
+.debtBreakdownNames { flex: 1; }
+.debtBreakdownAmount { font-weight: 600; }
 
 .balanceRegisterBtn {
   display: inline-flex;
