@@ -10,7 +10,7 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.75rem var(--page-padding);
   flex-shrink: 0;
 }
@@ -51,12 +51,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 0 var(--page-padding) 1rem;
+  padding: 0 var(--page-padding) 1.5rem;
 }
 
 /* ── Amount section ─────────────────────────────────────────────────────── */
 .amountSection {
-  padding: 0.875rem 0 1rem;
+  padding: 0.875rem 0 1.25rem;
 }
 
 .amountCard {
@@ -66,7 +66,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 0.125rem;
 }
 
 .amountLabel {
@@ -87,7 +86,7 @@
   margin-bottom: 1.25rem;
 }
 
-/* Visually hidden but still receives focus + keyboard input */
+/* Visually hidden — receives keyboard input */
 .hiddenInput {
   position: absolute;
   opacity: 0;
@@ -124,68 +123,6 @@
   color: var(--color-negative);
 }
 
-/* ── Field section ──────────────────────────────────────────────────────── */
-.fieldSection {
-  margin-bottom: 1rem;
-}
-
-.descInput {
-  width: 100%;
-  padding: 1rem 1.125rem;
-  background: var(--color-bg-muted);
-  color: var(--color-text);
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
-  font-size: 1rem;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.descInput::placeholder { color: var(--color-text-hint); }
-.descInput:focus { border-color: var(--color-primary); }
-
-/* ── Date row ───────────────────────────────────────────────────────────── */
-.dateRow {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  margin-top: 0.5rem;
-  padding: 0.75rem 1.125rem;
-  background: var(--color-bg-muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
-  transition: border-color 0.15s;
-}
-.dateRow:focus-within { border-color: var(--color-primary); }
-
-.dateIcon {
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.dateInput {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: var(--color-text);
-  font-size: 0.9375rem;
-  font-family: inherit;
-  outline: none;
-  min-width: 0;
-  /* Remove native date picker chrome on iOS/Android while keeping functionality */
-  -webkit-appearance: none;
-  appearance: none;
-}
-.dateInput::-webkit-calendar-picker-indicator {
-  opacity: 0.5;
-  cursor: pointer;
-}
-[data-theme="dark"] .dateInput::-webkit-calendar-picker-indicator {
-  filter: invert(1);
-  opacity: 0.6;
-}
-.dateInput:disabled { opacity: 0.5; }
-
 /* ── Form sections ──────────────────────────────────────────────────────── */
 .formSection {
   margin-bottom: 1.25rem;
@@ -200,29 +137,92 @@
   margin-bottom: 0.625rem;
 }
 
-/* ── Payer pills ────────────────────────────────────────────────────────── */
-.pillRow {
+.sectionLabelRow {
   display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.625rem;
 }
 
-.pill {
-  padding: 0.5rem 1rem;
-  background: var(--color-bg-muted);
-  color: var(--color-text-muted);
+.sectionLabelRow .sectionLabel {
+  margin-bottom: 0;
+}
+
+.sectionHint {
+  font-size: 0.8125rem;
+  color: var(--color-text-hint);
+}
+
+/* ── Description input ──────────────────────────────────────────────────── */
+.descInput {
+  width: 100%;
+  padding: 1rem 1.125rem;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
   border: 1px solid transparent;
-  border-radius: var(--radius-full);
-  font-size: 0.875rem;
-  font-weight: 500;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.descInput::placeholder { color: var(--color-text-hint); }
+.descInput:focus { border-color: var(--color-primary); }
+
+/* ── Date input ─────────────────────────────────────────────────────────── */
+.dateInput {
+  width: 100%;
+  padding: 1rem 1.125rem;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.dateInput:focus { border-color: var(--color-primary); }
+.dateInput::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+}
+[data-theme="dark"] .dateInput::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+}
+.dateInput:disabled { opacity: 0.5; }
+
+/* ── Payer grid (2 equal buttons) ───────────────────────────────────────── */
+.payerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.payerBtn {
+  padding: 0.875rem 1rem;
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  text-align: center;
   transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.payerBtn:active { opacity: 0.8; }
 
-.pillActive {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
+.payerBtnActive {
+  background: var(--color-primary);
+  color: #fff;
   border-color: var(--color-primary);
 }
 
@@ -242,17 +242,49 @@
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   transition: background-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
 .memberRow:last-child { border-bottom: none; }
 .memberRow:active { background: var(--color-bg-muted); }
 
-.memberFirst { border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); }
-.memberLast  { border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); }
+.memberAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  user-select: none;
+}
 
+.memberName {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.memberShare {
+  font-size: 0.9375rem;
+  color: var(--color-text-hint);
+  text-align: right;
+  font-weight: 500;
+}
+
+.memberShareActive {
+  color: var(--color-text);
+}
+
+/* ── Checkbox ───────────────────────────────────────────────────────────── */
 .checkbox {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   border: 1.5px solid var(--color-border-strong);
   display: flex;
   align-items: center;
@@ -267,39 +299,6 @@
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: #fff;
-}
-
-.memberAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-muted);
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.memberName {
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.memberShare {
-  font-size: 0.875rem;
-  color: var(--color-text-hint);
-  text-align: right;
-  font-weight: 500;
-}
-
-.memberShareActive {
-  color: var(--color-text-muted);
 }
 
 /* ── Error ──────────────────────────────────────────────────────────────── */
@@ -321,6 +320,10 @@
 
 .saveBtn {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   padding: 1rem;
   background: var(--color-primary);
   color: #fff;

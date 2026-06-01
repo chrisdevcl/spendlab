@@ -25,6 +25,11 @@ function formatAmountDisplay(n: number): string {
   return formatCLP(n);
 }
 
+function todayLocal(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function NewExpenseForm({
@@ -35,10 +40,10 @@ export default function NewExpenseForm({
 }: Props) {
   const router = useRouter();
 
-  // Modo individual: 1 solo integrante → sin selector de pagador ni de participantes
   const isSolo = members.length === 1;
+  const today  = todayLocal();
 
-  // ── Amount state ───────────────────────────────────────────────────────────
+  // ── Amount ─────────────────────────────────────────────────────────────────
   const [rawAmount, setRawAmount] = useState("0");
   const amountValue = parseAmount(rawAmount);
   const amountInputRef = useRef<HTMLInputElement>(null);
@@ -54,11 +59,7 @@ export default function NewExpenseForm({
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [description, setDescription] = useState("");
-  const [date, setDate] = useState<string>(() => {
-    // Default: today in local timezone as YYYY-MM-DD
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  });
+  const [date, setDate]   = useState<string>(today);
   const [paidBy, setPaidBy] = useState(userId);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(members.map((m) => m.id))
@@ -66,11 +67,13 @@ export default function NewExpenseForm({
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
+  const isToday = date === today;
+
   function toggleMember(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
-        if (next.size === 1) return prev; // mínimo 1
+        if (next.size === 1) return prev;
         next.delete(id);
       } else {
         next.add(id);
@@ -79,11 +82,11 @@ export default function NewExpenseForm({
     });
   }
 
-  // ── Real-time split preview ────────────────────────────────────────────────
+  // ── Split preview ──────────────────────────────────────────────────────────
   const splits = useMemo<Record<string, number>>(() => {
     const selected = members.filter((m) => selectedIds.has(m.id));
     if (!selected.length || amountValue === 0) return {};
-    const base = Math.floor(amountValue / selected.length);
+    const base      = Math.floor(amountValue / selected.length);
     const remainder = amountValue % selected.length;
     return Object.fromEntries(
       selected.map((m, i) => [m.id, base + (i < remainder ? 1 : 0)])
@@ -91,8 +94,7 @@ export default function NewExpenseForm({
   }, [amountValue, members, selectedIds]);
 
   // ── Save ───────────────────────────────────────────────────────────────────
-  const canSave =
-    amountValue > 0 && description.trim().length > 0 && selectedIds.size > 0;
+  const canSave = amountValue > 0 && description.trim().length > 0 && selectedIds.size > 0;
 
   function handleSave() {
     if (!canSave) return;
@@ -106,12 +108,10 @@ export default function NewExpenseForm({
         Array.from(selectedIds),
         date
       );
-      // redirect() in server action navigates away; we only reach here on error
       if (result?.error) setError(result.error);
     });
   }
 
-  // Focus amount input on mount
   useEffect(() => {
     amountInputRef.current?.focus();
   }, []);
@@ -132,14 +132,13 @@ export default function NewExpenseForm({
         </button>
         <h1 className={styles.title}>
           Nuevo gasto
-          {groupName && (
-            <span className={styles.titleGroup}> · {groupName}</span>
-          )}
+          {groupName && <span className={styles.titleGroup}> · {groupName}</span>}
         </h1>
       </header>
 
       <div className={styles.scrollArea}>
-        {/* ── Amount display ──────────────────────────────────────────── */}
+
+        {/* ── Amount card ─────────────────────────────────────────────── */}
         <div className={styles.amountSection}>
           <div className={styles.amountCard}>
             <p className={styles.amountLabel}>Monto total</p>
@@ -149,61 +148,51 @@ export default function NewExpenseForm({
             >
               {formatAmountDisplay(amountValue)}
             </div>
-          {/* Hidden input handles keyboard entry */}
-          <input
-            ref={amountInputRef}
-            className={styles.hiddenInput}
-            type="text"
-            inputMode="numeric"
-            value={rawAmount === "0" ? "" : rawAmount}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/\D/g, "");
-              setRawAmount(digits || "0");
-              if (error) setError("");
-            }}
-            aria-label="Monto del gasto"
-          />
-          <div className={styles.quickRow}>
-            <button
-              className={styles.quickChip}
-              onClick={() => addQuick(1000)}
-              disabled={isPending}
-            >
-              +$1.000
-            </button>
-            <button
-              className={styles.quickChip}
-              onClick={() => addQuick(5000)}
-              disabled={isPending}
-            >
-              +$5.000
-            </button>
-            <button
-              className={styles.quickChip}
-              onClick={() => addQuick(10000)}
-              disabled={isPending}
-            >
-              +$10.000
-            </button>
-            {amountValue > 0 && (
-              <button
-                className={`${styles.quickChip} ${styles.quickClear}`}
-                onClick={clearAmount}
-                disabled={isPending}
-              >
-                ✕
-              </button>
-            )}
+            {/* Hidden input receives keyboard entry */}
+            <input
+              ref={amountInputRef}
+              className={styles.hiddenInput}
+              type="text"
+              inputMode="numeric"
+              value={rawAmount === "0" ? "" : rawAmount}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "");
+                setRawAmount(digits || "0");
+                if (error) setError("");
+              }}
+              aria-label="Monto del gasto"
+            />
+            <div className={styles.quickRow}>
+              {[1000, 5000, 10000].map((n) => (
+                <button
+                  key={n}
+                  className={styles.quickChip}
+                  onClick={() => addQuick(n)}
+                  disabled={isPending}
+                >
+                  +{formatCLP(n)}
+                </button>
+              ))}
+              {amountValue > 0 && (
+                <button
+                  className={`${styles.quickChip} ${styles.quickClear}`}
+                  onClick={clearAmount}
+                  disabled={isPending}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
-          </div>{/* /amountCard */}
         </div>
 
-        {/* ── Description + Date ──────────────────────────────────────── */}
-        <div className={styles.fieldSection}>
+        {/* ── Description ─────────────────────────────────────────────── */}
+        <div className={styles.formSection}>
+          <p className={styles.sectionLabel}>Descripción</p>
           <input
             className={styles.descInput}
             type="text"
-            placeholder="¿Qué fue? (ej: Supermercado)"
+            placeholder="Ej: Supermercado Jumbo"
             value={description}
             maxLength={100}
             disabled={isPending}
@@ -212,32 +201,35 @@ export default function NewExpenseForm({
               if (error) setError("");
             }}
           />
-          <div className={styles.dateRow}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.dateIcon} aria-hidden="true">
-              <rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M5 1.5v3M11 1.5v3M2 6.5h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-            <input
-              className={styles.dateInput}
-              type="date"
-              value={date}
-              max={`${new Date().getFullYear() + 1}-12-31`}
-              disabled={isPending}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
         </div>
 
-        {/* ── Payer + participants (ocultos en modo solo) ──────────────── */}
+        {/* ── Date ────────────────────────────────────────────────────── */}
+        <div className={styles.formSection}>
+          <div className={styles.sectionLabelRow}>
+            <p className={styles.sectionLabel}>Fecha</p>
+            {isToday && <span className={styles.sectionHint}>Hoy</span>}
+          </div>
+          <input
+            className={styles.dateInput}
+            type="date"
+            value={date}
+            max={`${new Date().getFullYear() + 1}-12-31`}
+            disabled={isPending}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
+
+        {/* ── Payer + splits (hidden in solo mode) ────────────────────── */}
         {!isSolo && (
           <>
-            <section className={styles.formSection}>
+            {/* ¿Quién pagó? */}
+            <div className={styles.formSection}>
               <p className={styles.sectionLabel}>¿Quién pagó?</p>
-              <div className={styles.pillRow}>
+              <div className={styles.payerGrid}>
                 {members.map((m) => (
                   <button
                     key={m.id}
-                    className={`${styles.pill} ${paidBy === m.id ? styles.pillActive : ""}`}
+                    className={`${styles.payerBtn} ${paidBy === m.id ? styles.payerBtnActive : ""}`}
                     onClick={() => setPaidBy(m.id)}
                     disabled={isPending}
                   >
@@ -245,24 +237,24 @@ export default function NewExpenseForm({
                   </button>
                 ))}
               </div>
-            </section>
+            </div>
 
-            <section className={styles.formSection}>
-              <p className={styles.sectionLabel}>¿Quiénes participan?</p>
+            {/* Dividir entre */}
+            <div className={styles.formSection}>
+              <p className={styles.sectionLabel}>Dividir entre</p>
               <div className={styles.memberList}>
-                {members.map((m, i) => {
-                  const checked = selectedIds.has(m.id);
+                {members.map((m) => {
+                  const checked  = selectedIds.has(m.id);
                   const shareAmt = splits[m.id];
+                  const initials = (m.display_name[0] ?? "?").toUpperCase();
                   return (
                     <div
                       key={m.id}
-                      className={`${styles.memberRow} ${i === 0 ? styles.memberFirst : ""} ${i === members.length - 1 ? styles.memberLast : ""}`}
+                      className={styles.memberRow}
                       onClick={() => !isPending && toggleMember(m.id)}
                     >
-                      <div className={styles.memberAvatar}>
-                        {m.display_name[0]?.toUpperCase() ?? "?"}
-                      </div>
-                      <p className={styles.memberName}>{m.display_name}</p>
+                      <div className={styles.memberAvatar}>{initials}</div>
+                      <p className={styles.memberName}>{m.display_name.split(" ")[0]}</p>
                       <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
                         {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
                       </p>
@@ -277,7 +269,7 @@ export default function NewExpenseForm({
                   );
                 })}
               </div>
-            </section>
+            </div>
           </>
         )}
 
@@ -291,7 +283,16 @@ export default function NewExpenseForm({
           onClick={handleSave}
           disabled={!canSave || isPending}
         >
-          {isPending ? "Guardando…" : "Guardar gasto"}
+          {isPending ? (
+            "Guardando…"
+          ) : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2.5 8.5l4 4 7-8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Guardar gasto
+            </>
+          )}
         </button>
       </div>
     </div>
