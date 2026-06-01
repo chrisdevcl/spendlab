@@ -21,6 +21,7 @@ export interface PasskeyItem {
   device_type: string;
   backed_up: boolean;
   transports: string[];
+  nickname: string | null;
   created_at: string;
 }
 
@@ -68,7 +69,7 @@ export default async function ProfilePage() {
       supabase.from("group_members").select("group_id").eq("user_id", user.id),
       supabase
         .from("passkey_credentials")
-        .select("id, device_type, backed_up, transports, created_at")
+        .select("id, device_type, backed_up, transports, nickname, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: true }),
     ]);

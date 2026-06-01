@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
       device_type: credentialDeviceType,
       backed_up:   credentialBackedUp,
       transports:  body.response?.transports ?? [],
+      nickname:    null,
     });
 
   if (dbErr) {

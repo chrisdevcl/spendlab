@@ -149,6 +149,7 @@ CREATE TABLE passkey_credentials (
   device_type   text        NOT NULL DEFAULT 'singleDevice',
   backed_up     boolean     NOT NULL DEFAULT false,
   transports    text[]      NOT NULL DEFAULT '{}',
+  nickname      text,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 

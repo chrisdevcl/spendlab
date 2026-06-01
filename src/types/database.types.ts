@@ -72,6 +72,7 @@ export type PasskeyCredential = {
   device_type: string | null;
   backed_up: boolean | null;
   transports: string[] | null;
+  nickname: string | null;
   created_at: string;
 };
 

@@ -405,3 +405,69 @@
 }
 .passkeyDelete:hover { color: var(--color-negative); background: var(--color-bg-muted); }
 .passkeyDelete:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Notifications row ────────────────────────────────────────────────────── */
+.notifRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+}
+
+.notifInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.notifStatus {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.notifBtnOn {
+  padding: 0.4rem 1rem;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.notifBtnOn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.notifBtnOff {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.notifBtnOff:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.notifDenied {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-align: right;
+  flex-shrink: 0;
+  max-width: 9rem;
+}
+
+/* ── Row badge (passkeys count) ──────────────────────────────────────────── */
+.rowBadge {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}

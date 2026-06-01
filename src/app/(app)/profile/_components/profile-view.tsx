@@ -8,6 +8,7 @@ import {
   useCallback,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { updateDisplayName, signOut, deleteAccount } from "../actions";
@@ -74,13 +75,9 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     });
   }
 
-  // ── Passkeys ───────────────────────────────────────────────────────────────
-  const [passkeys, setPasskeys] = useState<PasskeyItem[]>(initialPasskeys);
-  const [passkeyMsg, setPasskeyMsg]     = useState("");
-  const [passkeyError, setPasskeyError] = useState(false);
-  const [isPendingPasskey, startPasskeyTransition] = useTransition();
+  // ── Passkeys (count badge only — management is in /profile/passkeys) ──────
+  const passkeyCount = initialPasskeys.length;
   const [passkeySupported, setPasskeySupported] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (
@@ -93,76 +90,69 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     }
   }, []);
 
-  function showPasskeyMsg(msg: string, isError = false) {
-    setPasskeyMsg(msg);
-    setPasskeyError(isError);
-    setTimeout(() => { setPasskeyMsg(""); setPasskeyError(false); }, 4000);
-  }
+  // ── Notifications ─────────────────────────────────────────────────────────
+  const [notifPermission, setNotifPermission] =
+    useState<NotificationPermission | null>(() =>
+      typeof window !== "undefined" && "Notification" in window
+        ? Notification.permission
+        : null
+    );
+  const [notifLoading, setNotifLoading] = useState(false);
+  const notifSupported =
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    "PushManager" in window &&
+    !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-  function handleAddPasskey() {
-    startPasskeyTransition(async () => {
-      const beginRes = await fetch("/api/passkey/register/begin", { method: "POST" });
-      if (!beginRes.ok) {
-        const d = await beginRes.json().catch(() => ({}));
-        showPasskeyMsg(d.error ?? "Error al registrar passkey", true);
-        return;
+  async function enableNotifications() {
+    if (!notifSupported) return;
+    setNotifLoading(true);
+    try {
+      const permission = await Notification.requestPermission();
+      setNotifPermission(permission);
+      if (permission !== "granted") { setNotifLoading(false); return; }
+
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(
+            process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+          ),
+        });
       }
-      const options = await beginRes.json();
-
-      let credential;
-      try {
-        const { startRegistration } = await import("@simplewebauthn/browser");
-        credential = await startRegistration({ optionsJSON: options });
-      } catch (err) {
-        const name = (err as Error).name;
-        if (name === "InvalidStateError") {
-          showPasskeyMsg("Este dispositivo ya tiene una passkey registrada");
-        } else if (name !== "NotAllowedError") {
-          showPasskeyMsg("Error al registrar passkey", true);
-        }
-        return;
-      }
-
-      const finishRes = await fetch("/api/passkey/register/finish", {
+      await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credential),
+        body: JSON.stringify(sub.toJSON()),
       });
-      const data = await finishRes.json();
-      if (!finishRes.ok || data.error) {
-        showPasskeyMsg(data.error ?? "Error al registrar passkey", true);
-        return;
-      }
-
-      showPasskeyMsg("Passkey añadida correctamente");
-      router.refresh();
-    });
-  }
-
-  async function handleDeletePasskey(id: string) {
-    setDeletingId(id);
-    const res = await fetch(`/api/passkey/register/${id}`, { method: "DELETE" });
-    const data = await res.json();
-    setDeletingId(null);
-    if (!res.ok || data.error) {
-      showPasskeyMsg(data.error ?? "Error al eliminar passkey", true);
-      return;
+    } catch (err) {
+      console.error("[enableNotifications]", err);
     }
-    setPasskeys((prev) => prev.filter((p) => p.id !== id));
+    setNotifLoading(false);
   }
 
-  function passkeyLabel(pk: PasskeyItem): string {
-    if (pk.backed_up) return "Passkey sincronizada";
-    if (pk.transports.includes("internal")) return "Passkey de dispositivo";
-    return "Passkey";
-  }
-
-  function formatPasskeyDate(iso: string): string {
-    return new Date(iso).toLocaleDateString("es-CL", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  async function disableNotifications() {
+    if (!notifSupported) return;
+    setNotifLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/subscribe", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+      setNotifPermission("default");
+    } catch (err) {
+      console.error("[disableNotifications]", err);
+    }
+    setNotifLoading(false);
   }
 
   // ── Theme toggle ──────────────────────────────────────────────────────────
@@ -326,66 +316,75 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
           </div>
         </section>
 
-        {/* ── Passkeys section ──────────────────────────────────────── */}
+        {/* ── Notificaciones ────────────────────────────────────────── */}
+        {notifSupported && (
+          <section className={styles.section}>
+            <p className={styles.sectionLabel}>Notificaciones</p>
+            <div className={styles.accountList}>
+              <div className={styles.notifRow}>
+                <div className={styles.rowIcon}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                </div>
+                <div className={styles.notifInfo}>
+                  <span className={styles.rowLabel}>Notificaciones push</span>
+                  <span className={styles.notifStatus}>
+                    {notifPermission === "granted"
+                      ? "Activadas"
+                      : notifPermission === "denied"
+                      ? "Bloqueadas por el navegador"
+                      : "Desactivadas"}
+                  </span>
+                </div>
+                {notifPermission === "granted" ? (
+                  <button
+                    className={styles.notifBtnOff}
+                    onClick={disableNotifications}
+                    disabled={notifLoading}
+                  >
+                    {notifLoading ? "…" : "Desactivar"}
+                  </button>
+                ) : notifPermission === "denied" ? (
+                  <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
+                ) : (
+                  <button
+                    className={styles.notifBtnOn}
+                    onClick={enableNotifications}
+                    disabled={notifLoading}
+                  >
+                    {notifLoading ? "…" : "Activar"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Passkeys — nav link to /profile/passkeys ──────────────── */}
         {passkeySupported && (
           <section className={styles.section}>
-            <p className={styles.sectionLabel}>Passkeys</p>
+            <p className={styles.sectionLabel}>Seguridad</p>
             <div className={styles.accountList}>
-              {passkeys.length === 0 && (
-                <p className={styles.passkeyEmpty}>No tienes passkeys registradas.</p>
-              )}
-              {passkeys.map((pk) => (
-                <div key={pk.id} className={styles.passkeyRow}>
-                  <div className={styles.rowIcon}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                      <path d="M12 10a2 2 0 0 0-2 2c0 1.7 1.08 3.15 2.6 3.68" />
-                      <path d="M12 6a6 6 0 0 1 6 6c0 1.37-.45 2.63-1.2 3.65" />
-                      <path d="M12 6a6 6 0 0 0-6 6c0 3.31 2.69 6 6 6" />
-                      <path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07" />
-                      <path d="M12 2c5.52 0 10 4.48 10 10 0 1.45-.31 2.82-.86 4.06" />
-                    </svg>
-                  </div>
-                  <div className={styles.passkeyInfo}>
-                    <span className={styles.passkeyName}>{passkeyLabel(pk)}</span>
-                    <span className={styles.passkeyDate}>Añadida el {formatPasskeyDate(pk.created_at)}</span>
-                  </div>
-                  <button
-                    className={styles.passkeyDelete}
-                    onClick={() => handleDeletePasskey(pk.id)}
-                    disabled={deletingId === pk.id}
-                    aria-label="Eliminar passkey"
-                  >
-                    {deletingId === pk.id ? "…" : (
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M3 4h10M6 4V2.5h4V4M5 4v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              ))}
-              <button
-                className={styles.accountRow}
-                onClick={handleAddPasskey}
-                disabled={isPendingPasskey}
-              >
+              <Link href="/profile/passkeys" className={styles.accountRow}>
                 <div className={styles.rowIcon}>
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 4v10M4 9h10" />
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+                    <path d="M12 10a2 2 0 0 0-2 2c0 1.7 1.08 3.15 2.6 3.68" />
+                    <path d="M12 6a6 6 0 0 1 6 6c0 1.37-.45 2.63-1.2 3.65" />
+                    <path d="M12 6a6 6 0 0 0-6 6c0 3.31 2.69 6 6 6" />
+                    <path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07" />
+                    <path d="M12 2c5.52 0 10 4.48 10 10 0 1.45-.31 2.82-.86 4.06" />
                   </svg>
                 </div>
-                <span className={styles.rowLabel}>
-                  {isPendingPasskey ? "Registrando…" : "Añadir passkey"}
+                <span className={styles.rowLabel}>Passkeys</span>
+                <span className={styles.rowBadge}>
+                  {passkeyCount === 0 ? "Ninguna" : passkeyCount === 1 ? "1 dispositivo" : `${passkeyCount} dispositivos`}
                 </span>
-                {passkeyMsg ? (
-                  <span className={passkeyError ? styles.rowMsgError : styles.rowMsg}>
-                    {passkeyMsg}
-                  </span>
-                ) : (
-                  <svg className={styles.rowChevron} width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
+                <svg className={styles.rowChevron} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </Link>
             </div>
           </section>
         )}
