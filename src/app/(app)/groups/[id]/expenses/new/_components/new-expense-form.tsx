@@ -54,6 +54,11 @@ export default function NewExpenseForm({
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [description, setDescription] = useState("");
+  const [date, setDate] = useState<string>(() => {
+    // Default: today in local timezone as YYYY-MM-DD
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
   const [paidBy, setPaidBy] = useState(userId);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(members.map((m) => m.id))
@@ -98,7 +103,8 @@ export default function NewExpenseForm({
         paidBy,
         amountValue,
         description,
-        Array.from(selectedIds)
+        Array.from(selectedIds),
+        date
       );
       // redirect() in server action navigates away; we only reach here on error
       if (result?.error) setError(result.error);
@@ -192,7 +198,7 @@ export default function NewExpenseForm({
           </div>{/* /amountCard */}
         </div>
 
-        {/* ── Description ─────────────────────────────────────────────── */}
+        {/* ── Description + Date ──────────────────────────────────────── */}
         <div className={styles.fieldSection}>
           <input
             className={styles.descInput}
@@ -206,6 +212,20 @@ export default function NewExpenseForm({
               if (error) setError("");
             }}
           />
+          <div className={styles.dateRow}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.dateIcon} aria-hidden="true">
+              <rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5 1.5v3M11 1.5v3M2 6.5h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            <input
+              className={styles.dateInput}
+              type="date"
+              value={date}
+              max={`${new Date().getFullYear() + 1}-12-31`}
+              disabled={isPending}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
         </div>
 
         {/* ── Payer + participants (ocultos en modo solo) ──────────────── */}

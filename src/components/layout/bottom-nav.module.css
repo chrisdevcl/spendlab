@@ -1,7 +1,11 @@
 .nav {
   display: flex;
   align-items: stretch;
+  /* padding-bottom reserves space for the home indicator / gesture bar.
+     box-sizing: content-box ensures height: 64px is the *content* zone,
+     so the safe-area padding is purely additive and never eats into the tabs. */
   height: 64px;
+  box-sizing: content-box;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   border-top: 1px solid var(--color-border);
   background-color: var(--color-bg-surface);
@@ -19,6 +23,8 @@
   color: var(--color-text-muted);
   transition: color 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+  /* Ensure the tap target is always the full 64px, not less */
+  min-height: 64px;
 }
 
 .item:hover {

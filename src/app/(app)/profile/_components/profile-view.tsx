@@ -91,18 +91,43 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
   }, []);
 
   // ── Notifications ─────────────────────────────────────────────────────────
+  // Track subscription state separately from browser permission:
+  //   - permission: what the browser reports (granted/denied/default)
+  //   - isSubscribed: whether there's an active push subscription in PushManager
   const [notifPermission, setNotifPermission] =
     useState<NotificationPermission | null>(() =>
       typeof window !== "undefined" && "Notification" in window
         ? Notification.permission
         : null
     );
+  const [isSubscribed, setIsSubscribed] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
   const notifSupported =
     typeof window !== "undefined" &&
     "Notification" in window &&
     "PushManager" in window &&
     !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+  // Check subscription status on mount
+  useEffect(() => {
+    if (!notifSupported || typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (!reg) return;
+      reg.pushManager.getSubscription().then((sub) => {
+        setIsSubscribed(!!sub);
+      }).catch(() => {});
+    }).catch(() => {});
+  }, [notifSupported]);
+
+  // Helper: get SW registration with timeout to avoid hanging in PWA
+  function getSwRegistration(timeoutMs = 5000): Promise<ServiceWorkerRegistration> {
+    return Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("SW timeout")), timeoutMs)
+      ),
+    ]);
+  }
 
   async function enableNotifications() {
     if (!notifSupported) return;
@@ -112,7 +137,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
       setNotifPermission(permission);
       if (permission !== "granted") { setNotifLoading(false); return; }
 
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getSwRegistration();
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
@@ -128,6 +153,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
       });
+      setIsSubscribed(true);
     } catch (err) {
       console.error("[enableNotifications]", err);
     }
@@ -138,7 +164,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
     if (!notifSupported) return;
     setNotifLoading(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getSwRegistration();
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
         await fetch("/api/push/subscribe", {
@@ -148,7 +174,7 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
         });
         await sub.unsubscribe();
       }
-      setNotifPermission("default");
+      setIsSubscribed(false);
     } catch (err) {
       console.error("[disableNotifications]", err);
     }
@@ -331,14 +357,16 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                 <div className={styles.notifInfo}>
                   <span className={styles.rowLabel}>Notificaciones push</span>
                   <span className={styles.notifStatus}>
-                    {notifPermission === "granted"
-                      ? "Activadas"
-                      : notifPermission === "denied"
+                    {notifPermission === "denied"
                       ? "Bloqueadas por el navegador"
+                      : isSubscribed
+                      ? "Activadas"
                       : "Desactivadas"}
                   </span>
                 </div>
-                {notifPermission === "granted" ? (
+                {notifPermission === "denied" ? (
+                  <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
+                ) : isSubscribed ? (
                   <button
                     className={styles.notifBtnOff}
                     onClick={disableNotifications}
@@ -346,8 +374,6 @@ export default function ProfileView({ profile, stats, passkeys: initialPasskeys 
                   >
                     {notifLoading ? "…" : "Desactivar"}
                   </button>
-                ) : notifPermission === "denied" ? (
-                  <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
                 ) : (
                   <button
                     className={styles.notifBtnOn}

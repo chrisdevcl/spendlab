@@ -565,6 +565,11 @@ CREATE POLICY "passkeys: user can insert own"
   ON passkey_credentials FOR INSERT TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "passkeys: user can update own"
+  ON passkey_credentials FOR UPDATE TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
 CREATE POLICY "passkeys: user can delete own"
   ON passkey_credentials FOR DELETE TO authenticated
   USING (auth.uid() = user_id);

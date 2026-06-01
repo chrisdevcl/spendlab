@@ -17,35 +17,8 @@ interface Props {
   invitations: PendingInvitation[];
 }
 
-const GREETINGS = [
-  "Hola",       // Español
-  "Hello",      // Inglés
-  "Ciao",       // Italiano
-  "Salut",      // Francés
-  "Olá",        // Portugués
-  "Hei",        // Noruego / Finlandés
-  "Xin chào",   // Vietnamita
-  "Merhaba",    // Turco
-  "Hallo",      // Alemán / Neerlandés
-  "こんにちは",  // Japonés
-  "안녕하세요",  // Coreano
-  "Привет",     // Ruso
-  "Yassas",     // Griego
-];
-
-const STORAGE_KEY = "spendlab_greeting_idx";
-
-function nextGreeting(): string {
-  if (typeof window === "undefined") return GREETINGS[0];
-  const current = parseInt(localStorage.getItem(STORAGE_KEY) ?? "-1", 10);
-  const next = (current + 1) % GREETINGS.length;
-  localStorage.setItem(STORAGE_KEY, String(next));
-  return GREETINGS[next];
-}
-
 export default function GroupsList({ groups, profile, invitations }: Props) {
   const router = useRouter();
-  const [greeting] = useState(nextGreeting);
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -197,7 +170,7 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
       {/* ── Header ────────────────────────────────────────────────── */}
       <header className={styles.header}>
         <div>
-          <p className={styles.greetingLabel}>{greeting}</p>
+          <p className={styles.greetingLabel}>Hola</p>
           <h1 className={styles.greeting}>{firstName}</h1>
         </div>
         <button className={styles.btnCreate} onClick={openModal}>
