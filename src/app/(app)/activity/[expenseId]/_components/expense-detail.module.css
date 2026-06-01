@@ -194,12 +194,13 @@
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--color-text);
+  line-height: 1.25;
 }
 
-.payerTag {
-  font-size: 0.8125rem;
-  font-weight: 400;
+.splitSub {
+  font-size: 0.75rem;
   color: var(--color-text-muted);
+  margin-top: 0.1rem;
 }
 
 .splitAmount {
@@ -212,20 +213,47 @@
 .splitStatus {
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-full);
   white-space: nowrap;
+  text-align: right;
 }
 
 .splitSettled {
-  background: var(--color-positive-bg);
   color: var(--color-positive);
 }
 
 .splitPending {
-  background: var(--color-negative-bg);
   color: var(--color-negative);
 }
+
+/* ── Personal expense note ──────────────────────────────────────────────── */
+.personalNote {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 1rem 0 1.5rem;
+}
+
+/* ── Delete button (personal expense inline) ────────────────────────────── */
+.deleteBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.9375rem;
+  background: transparent;
+  color: var(--color-negative);
+  border: 1px solid var(--color-negative);
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  margin-top: 0.5rem;
+}
+.deleteBtn:hover { background: var(--color-negative-bg); }
+.deleteBtn:active { opacity: 0.8; }
 
 /* ── Info banner ────────────────────────────────────────────────────────── */
 .infoBanner {
@@ -254,6 +282,10 @@
 
 .payBtn {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   padding: 1rem;
   background: var(--color-primary);
   color: #fff;

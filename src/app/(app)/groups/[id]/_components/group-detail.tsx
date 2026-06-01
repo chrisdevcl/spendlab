@@ -107,12 +107,22 @@ export default function GroupDetail({
   const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
 
-  // All-time balance (net + debts) — the balance card always shows the CURRENT
-  // outstanding balance including all settlements ever made.
-  // The month picker only filters the expense LIST below, not the balance card.
+  // Cumulative balance through the selected month.
+  // We include all expenses and settlements that occurred UP TO AND INCLUDING
+  // the selected month. This way:
+  //   - Viewing Feb: shows the debt that existed at end of Feb
+  //   - Viewing Mar (where a Feb-debt was paid): debt -X + settlement +X = 0
+  //   - The settlement does NOT create a surplus in Mar because the debt is
+  //     already included in the cumulative sum.
   const { net, debts } = useMemo(() => {
-    const allSplits = expenses.flatMap((e) => e.splits);
-    const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
+    const expensesUpTo = expenses.filter(
+      (e) => e.expense_date.slice(0, 7) <= selectedMonth
+    );
+    const splitsUpTo = expensesUpTo.flatMap((e) => e.splits);
+    const settlementsUpTo = settlements.filter(
+      (s) => s.settled_at.slice(0, 7) <= selectedMonth
+    );
+    const raw = computeGlobalBalance(expensesUpTo, splitsUpTo, settlementsUpTo, userId, memberIds);
     return {
       net: raw.net,
       debts: raw.debts.map((d) => ({
@@ -122,7 +132,7 @@ export default function GroupDetail({
       })),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenses, settlements, userId]);
+  }, [expenses, settlements, selectedMonth, userId]);
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -252,21 +262,12 @@ export default function GroupDetail({
   const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
-  const owedToNames = debts
-    .filter((d) => d.fromUserId === userId)
-    .map((d) => firstWord(d.toProfile?.display_name ?? ""))
-    .join(", ");
-  const owedByNames = debts
-    .filter((d) => d.toUserId === userId)
-    .map((d) => firstWord(d.fromProfile?.display_name ?? ""))
-    .join(", ");
-
   const [debtsExpanded, setDebtsExpanded] = useState(false);
 
   const groupSubtitle = !multiMember
     ? "Solo tú"
     : group.members.length === 2
-    ? `Tú y ${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")}`
+    ? `${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")} y tú`
     : `${group.members.length} integrantes`;
 
     return (
@@ -283,13 +284,18 @@ export default function GroupDetail({
                     <p className={styles.groupSubtitle}>{groupSubtitle}</p>
                 </div>
                 <button className={styles.inviteBtn} onClick={openInvite}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <circle cx="6" cy="4.5" r="2.5" stroke="currentColor" strokeWidth="1.3"/>
+                      <path d="M1.5 12c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                      <path d="M11 2v4M9 4h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    </svg>
                     Invitar
                 </button>
             </header>
 
             <div className={styles.content}>
-                {/* ── Month picker ──────────────────────────────────────────── */}
-                {showPicker && (
+                {/* ── Month picker (single-member only, outside card) ───────── */}
+                {!multiMember && showPicker && (
                   <div className={styles.monthPicker}>
                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className={styles.monthIcon} aria-hidden="true">
                       <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -321,23 +327,40 @@ export default function GroupDetail({
                     onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtsExpanded((p) => !p)}
                     aria-expanded={debtsExpanded}
                   >
-                    <div className={styles.balanceHeader}>
-                      <p className={styles.balanceEyebrow}>Balance</p>
+                    {/* Top row: month pill + chevron */}
+                    <div className={styles.balanceTopRow}>
+                      {showPicker ? (
+                        <div className={styles.monthPill} onClick={(e) => e.stopPropagation()}>
+                          <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <select
+                            className={styles.monthSelectOverlay}
+                            value={selectedMonth}
+                            onChange={(e) => handleMonthChange(e.target.value)}
+                            aria-label="Seleccionar mes"
+                          >
+                            {availableMonths.map((key) => (
+                              <option key={key} value={key}>{monthLabel(key)}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
+                      )}
                       {(iOwe > 0 || theyOwe > 0) && (
-                        <svg className={`${styles.balanceChevron} ${debtsExpanded ? styles.balanceChevronUp : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <svg
+                          className={`${styles.balanceChevron} ${debtsExpanded ? styles.balanceChevronUp : ""}`}
+                          width="16" height="16" viewBox="0 0 16 16" fill="none"
+                        >
                           <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       )}
                     </div>
+
                     <p className={styles.balanceAmount}>
                       {net === 0 ? "$0" : net < 0 ? formatCLP(net) : `+${formatCLP(net)}`}
-                    </p>
-                    <p className={styles.balanceSub}>
-                      {net === 0
-                        ? "Todo al día ✓"
-                        : net < 0
-                        ? `Le debes a ${owedToNames}`
-                        : `Te debe ${owedByNames}`}
                     </p>
 
                     {/* DEBES / TE DEBEN row */}

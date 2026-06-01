@@ -109,16 +109,34 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
       </header>
 
       <div className={styles.content}>
-        {/* ── Global balance card ──────────────────────────────────────── */}
+        {/* ── Balance card ──────────────────────────────────────────────── */}
         <button
           className={styles.balanceCard}
           onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtExpanded((p) => !p)}
           aria-expanded={debtExpanded}
         >
-          <div className={styles.balanceHeader}>
-            <p className={styles.balanceEyebrow}>
-              {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"} · {formatCLP(totalAmount)}
-            </p>
+          {/* Top row: month picker pill + chevron */}
+          <div className={styles.balanceTopRow}>
+            {showPicker ? (
+              <div className={styles.monthPill} onClick={(e) => e.stopPropagation()}>
+                <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <select
+                  className={styles.monthSelectOverlay}
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  aria-label="Seleccionar mes"
+                >
+                  {availableMonths.map((key) => (
+                    <option key={key} value={key}>{monthLabel(key)}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
+            )}
             {(iOwe > 0 || theyOwe > 0) && (
               <svg
                 className={`${styles.chevron} ${debtExpanded ? styles.chevronUp : ""}`}
@@ -129,23 +147,34 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
             )}
           </div>
 
+          {/* Large amount */}
+          <p className={styles.balanceAmount}>{formatCLP(totalAmount)}</p>
+          <p className={styles.balanceEyebrow}>
+            {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"}
+          </p>
+
+          {/* DEBES / TE DEBEN row */}
           {(iOwe > 0 || theyOwe > 0) && (
-            <div className={styles.balanceRow}>
-              {iOwe > 0 && (
-                <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>DEBES</span>
-                  <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
-                </div>
-              )}
-              {theyOwe > 0 && (
-                <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>TE DEBEN</span>
-                  <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
-                </div>
-              )}
-            </div>
+            <>
+              <div className={styles.balanceDivider} />
+              <div className={styles.balanceRow}>
+                {iOwe > 0 && (
+                  <div className={styles.balanceStat}>
+                    <span className={styles.balanceStatLabel}>DEBES</span>
+                    <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
+                  </div>
+                )}
+                {theyOwe > 0 && (
+                  <div className={styles.balanceStat}>
+                    <span className={styles.balanceStatLabel}>TE DEBEN</span>
+                    <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
+          {/* Expanded debt breakdown */}
           {debtExpanded && debts.length > 0 && (
             <div className={styles.debtBreakdown}>
               <div className={styles.debtDivider} />
@@ -174,32 +203,6 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
             </button>
           )}
         </button>
-
-        {/* ── Month picker ─────────────────────────────────────────────── */}
-        {showPicker && (
-          <div className={styles.monthPicker}>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className={styles.monthIcon} aria-hidden="true">
-              <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M5 1v3M11 1v3M2 6h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-            <div className={styles.monthSelectWrap}>
-              <span className={styles.monthSelectLabel}>{monthLabel(selectedMonth)}</span>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
-                <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <select
-                className={styles.monthSelectOverlay}
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                aria-label="Seleccionar mes"
-              >
-                {availableMonths.map((key) => (
-                  <option key={key} value={key}>{monthLabel(key)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
 
         {/* ── Expense list ─────────────────────────────────────────────── */}
         {totalExpenses === 0 ? (

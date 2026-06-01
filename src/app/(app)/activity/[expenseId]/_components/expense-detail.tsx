@@ -25,9 +25,9 @@ interface Props {
 function formatDate(dateStr: string): string {
   const d = new Date(`${dateStr.length === 10 ? dateStr : dateStr.slice(0, 10)}T12:00:00`);
   return d.toLocaleDateString("es-CL", {
-    weekday: "long",
     day: "numeric",
-    month: "long",
+    month: "short",
+    year: "numeric",
   });
 }
 
@@ -65,8 +65,10 @@ export default function ExpenseDetail({
 
   const payerId = expense.paid_by;
   const mySplit = expense.splits.find((s) => s.user_id === userId);
+  const isPersonal = expense.splits.length <= 1;
+
   const userHasDebt =
-    mySplit !== undefined && mySplit.user_id !== payerId
+    !isPersonal && mySplit !== undefined && mySplit.user_id !== payerId
       ? isDebtPending(settlements, userId, payerId, mySplit.amount)
       : false;
 
@@ -87,7 +89,6 @@ export default function ExpenseDetail({
   function handleDelete() {
     startDeleteTransition(async () => {
       await deleteExpenseAction(expense.id, expense.group_id);
-      // refresh forces a full server re-fetch so balances are recalculated
       router.refresh();
       router.replace(`/groups/${expense.group_id}`);
     });
@@ -145,8 +146,8 @@ export default function ExpenseDetail({
     });
   }
 
-  const payerName =
-    expense.payer?.display_name ?? "Desconocido";
+  const payerName = expense.payer?.display_name ?? "Desconocido";
+  const canDelete = expense.paid_by === userId;
 
   return (
     <div className={styles.page}>
@@ -167,8 +168,8 @@ export default function ExpenseDetail({
             />
           </svg>
         </button>
-        <span className={styles.headerTitle}>Detalle de gasto</span>
-        {expense.paid_by === userId ? (
+        <span className={styles.headerTitle}>Detalle del gasto</span>
+        {canDelete ? (
           <button
             className={styles.iconBtnDanger}
             onClick={() => setDeleteOpen(true)}
@@ -193,88 +194,122 @@ export default function ExpenseDetail({
           <span className={styles.groupBadge}>{expense.group.name}</span>
         </div>
 
-        {/* ── Metadata card ─────────────────────────────────────────────── */}
-        <div className={styles.metaCard}>
-          <div className={styles.metaRow}>
-            <span className={styles.metaLabel}>Fecha</span>
-            <span className={styles.metaValue}>
-              {formatDate(expense.expense_date)}
-            </span>
-          </div>
-          <div className={`${styles.metaRow} ${styles.metaLast}`}>
-            <span className={styles.metaLabel}>Pagó</span>
-            <div className={styles.payerCell}>
-              <div className={styles.avatarXs}>
-                {payerName[0]?.toUpperCase() ?? "?"}
+        {isPersonal ? (
+          /* ── Personal expense ───────────────────────────────────────── */
+          <>
+            <div className={styles.metaCard}>
+              <div className={`${styles.metaRow} ${styles.metaLast}`}>
+                <span className={styles.metaLabel}>Fecha</span>
+                <span className={styles.metaValue}>
+                  {formatDate(expense.expense_date)}
+                </span>
               </div>
-              <span className={styles.metaValue}>{payerName}</span>
             </div>
-          </div>
-        </div>
 
-        {/* ── Splits ────────────────────────────────────────────────────── */}
-        <section className={styles.section}>
-          <p className={styles.sectionLabel}>División del gasto</p>
-          <div className={styles.splitList}>
-            {expense.splits.map((split) => {
-              const name = split.profile?.display_name ?? split.user_id;
-              const isPayer = split.user_id === payerId;
-              let settled: boolean;
-              if (isPayer) {
-                settled = true; // payer always "settled" for their own share
-              } else {
-                const paid = settledAmount(settlements, split.user_id, payerId);
-                settled = paid >= split.amount;
-              }
+            <p className={styles.personalNote}>Gasto personal — sin división ni deudas.</p>
 
-              return (
-                <div key={split.id} className={styles.splitRow}>
-                  <div className={styles.splitAvatar}>
-                    {name[0]?.toUpperCase() ?? "?"}
+            {canDelete && (
+              <button
+                className={styles.deleteBtn}
+                onClick={() => setDeleteOpen(true)}
+              >
+                <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M3 5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M7 5V3h4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 5l.75 10.5h6.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Eliminar gasto
+              </button>
+            )}
+          </>
+        ) : (
+          /* ── Shared expense ─────────────────────────────────────────── */
+          <>
+            {/* Metadata card */}
+            <div className={styles.metaCard}>
+              <div className={styles.metaRow}>
+                <span className={styles.metaLabel}>Fecha</span>
+                <span className={styles.metaValue}>
+                  {formatDate(expense.expense_date)}
+                </span>
+              </div>
+              <div className={`${styles.metaRow} ${styles.metaLast}`}>
+                <span className={styles.metaLabel}>Pagó</span>
+                <div className={styles.payerCell}>
+                  <div className={styles.avatarXs}>
+                    {payerName[0]?.toUpperCase() ?? "?"}
                   </div>
-                  <div className={styles.splitInfo}>
-                    <p className={styles.splitName}>
-                      {name.split(" ")[0]}
-                      {isPayer && (
-                        <span className={styles.payerTag}> · Pagó</span>
-                      )}
-                    </p>
-                  </div>
-                  <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
-                  <span
-                    className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}
-                  >
-                    {settled ? "Sin deuda" : "Pendiente"}
-                  </span>
+                  <span className={styles.metaValue}>{payerName}</span>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+              </div>
+            </div>
 
-        {/* ── Info banner (only if current user has pending debt) ───────── */}
-        {userHasDebt && (
-          <div className={styles.infoBanner}>
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-              <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M9 8v5M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <p>
-              Tienes una deuda pendiente de{" "}
-              <strong>{formatCLP(debtAmount)}</strong> con{" "}
-              {payerName.split(" ")[0]}.
-            </p>
-          </div>
+            {/* Splits */}
+            <section className={styles.section}>
+              <p className={styles.sectionLabel}>División del gasto</p>
+              <div className={styles.splitList}>
+                {expense.splits.map((split) => {
+                  const name = split.profile?.display_name ?? split.user_id;
+                  const isPayer = split.user_id === payerId;
+                  let settled: boolean;
+                  if (isPayer) {
+                    settled = true;
+                  } else {
+                    const paid = settledAmount(settlements, split.user_id, payerId);
+                    settled = paid >= split.amount;
+                  }
+
+                  const subtitle = isPayer ? "pagó el total" : "tu parte";
+
+                  return (
+                    <div key={split.id} className={styles.splitRow}>
+                      <div className={styles.splitAvatar}>
+                        {name[0]?.toUpperCase() ?? "?"}
+                      </div>
+                      <div className={styles.splitInfo}>
+                        <p className={styles.splitName}>{name.split(" ")[0]}</p>
+                        <p className={styles.splitSub}>{subtitle}</p>
+                      </div>
+                      <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
+                      <span
+                        className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}
+                      >
+                        {settled ? "sin deuda" : "pendiente"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Info banner */}
+            {userHasDebt && (
+              <div className={styles.infoBanner}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M9 8v5M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <p>
+                  Le debes{" "}
+                  <strong>{formatCLP(debtAmount)}</strong>{" "}
+                  a {payerName.split(" ")[0]} por este gasto.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* ── Pay footer (only if user has debt) ──────────────────────────── */}
+      {/* ── Pay footer (only if user has debt in shared expense) ────────── */}
       {userHasDebt && (
         <div className={styles.payFooter}>
           <button
             className={styles.payBtn}
             onClick={() => { setSettleRaw(String(debtAmount)); setSettleOpen(true); }}
           >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
             Registrar pago a {payerName.split(" ")[0]}
           </button>
         </div>
