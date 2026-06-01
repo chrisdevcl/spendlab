@@ -8,7 +8,7 @@ import {
   useCallback,
   useMemo,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { GroupWithMembers, ExpenseWithDetails } from "@/types";
 import type { Profile, Settlement } from "@/types/database.types";
@@ -65,12 +65,12 @@ export default function GroupDetail({
   settlements,
   userId,
 }: Props) {
-  const router = useRouter();
-  const multiMember = group.members.length > 1;
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const multiMember  = group.members.length > 1;
 
   // ── Month picker ───────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
-  const storageKey = `spendlab_group_month_${group.id}`;
 
   const availableMonths = useMemo(() => {
     const keys = new Set<string>();
@@ -80,17 +80,20 @@ export default function GroupDetail({
     return [...keys].sort().reverse();
   }, [expenses, settlements, currentMonthKey]);
 
-  // Persist selected month in sessionStorage so navigating to expense detail
-  // and back restores the same month. Only resets to current on fresh entry.
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    if (typeof window === "undefined") return currentMonthKey;
-    const saved = sessionStorage.getItem(storageKey);
-    return saved && availableMonths.includes(saved) ? saved : currentMonthKey;
-  });
+  // Month lives in the URL (?m=2026-05) so:
+  //   - router.back() from expense detail preserves the param
+  //   - navigating to the group from anywhere else (no ?m) resets to current month
+  const urlMonth    = searchParams.get("m");
+  const initialMonth = urlMonth && availableMonths.includes(urlMonth)
+    ? urlMonth
+    : currentMonthKey;
+  const [selectedMonth, setSelectedMonth] = useState(initialMonth);
 
   function handleMonthChange(month: string) {
     setSelectedMonth(month);
-    if (typeof window !== "undefined") sessionStorage.setItem(storageKey, month);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("m", month);
+    router.replace(`?${params.toString()}`, { scroll: false });
   }
 
   const showPicker = availableMonths.length > 1;
@@ -104,25 +107,20 @@ export default function GroupDetail({
   const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
 
-  // Monthly net — based on expenses only (no settlements).
-  // Settlements reduce the all-time debt but must not distort the monthly view:
-  // a payment made in June for a May debt would otherwise show as a June "debt".
-  const { net } = useMemo(() => {
-    const splits = filteredExpenses.flatMap((e) => e.splits);
-    return computeGlobalBalance(filteredExpenses, splits, [], userId, memberIds);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredExpenses, userId]);
-
-  // All-time debts — always shown regardless of selected month
-  // This is the real outstanding balance: who owes who overall
-  const debts = useMemo(() => {
+  // All-time balance (net + debts) — the balance card always shows the CURRENT
+  // outstanding balance including all settlements ever made.
+  // The month picker only filters the expense LIST below, not the balance card.
+  const { net, debts } = useMemo(() => {
     const allSplits = expenses.flatMap((e) => e.splits);
     const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
-    return raw.debts.map((d) => ({
-      ...d,
-      fromProfile: profileMap.get(d.fromUserId),
-      toProfile: profileMap.get(d.toUserId),
-    }));
+    return {
+      net: raw.net,
+      debts: raw.debts.map((d) => ({
+        ...d,
+        fromProfile: profileMap.get(d.fromUserId),
+        toProfile: profileMap.get(d.toUserId),
+      })),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenses, settlements, userId]);
 
@@ -251,8 +249,6 @@ export default function GroupDetail({
   }
 
   // ── Balance display values ─────────────────────────────────────────────────
-  const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-
   const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
@@ -334,15 +330,11 @@ export default function GroupDetail({
                       )}
                     </div>
                     <p className={styles.balanceAmount}>
-                      {net === 0
-                        ? formatCLP(totalExpenses)
-                        : net < 0
-                        ? formatCLP(net)
-                        : `+${formatCLP(net)}`}
+                      {net === 0 ? "$0" : net < 0 ? formatCLP(net) : `+${formatCLP(net)}`}
                     </p>
                     <p className={styles.balanceSub}>
                       {net === 0
-                        ? totalExpenses > 0 ? "Todo al día ✓" : "Sin gastos aún"
+                        ? "Todo al día ✓"
                         : net < 0
                         ? `Le debes a ${owedToNames}`
                         : `Te debe ${owedByNames}`}
