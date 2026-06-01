@@ -207,20 +207,6 @@ export default function ExpenseDetail({
             </div>
 
             <p className={styles.personalNote}>Gasto personal — sin división ni deudas.</p>
-
-            {canDelete && (
-              <button
-                className={styles.deleteBtn}
-                onClick={() => setDeleteOpen(true)}
-              >
-                <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <path d="M3 5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  <path d="M7 5V3h4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M5 5l.75 10.5h6.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Eliminar gasto
-              </button>
-            )}
           </>
         ) : (
           /* ── Shared expense ─────────────────────────────────────────── */
