@@ -32,7 +32,9 @@ function toMonthKey(d: Date) {
 
 function monthLabel(key: string) {
   const [y, m] = key.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  const date  = new Date(y, m - 1, 1);
+  const month = date.toLocaleDateString("es-CL", { month: "long" });
+  return `${month.charAt(0).toUpperCase() + month.slice(1)} ${y}`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,20 +90,17 @@ export default function GroupDetail({
     [expenses, selectedMonth]
   );
 
-  const filteredSettlements = useMemo(
-    () => settlements.filter((s) => s.settled_at.slice(0, 7) === selectedMonth),
-    [settlements, selectedMonth]
-  );
-
   const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
 
-  // Monthly net — only for the balance card (how much moved this month)
+  // Monthly net — based on expenses only (no settlements).
+  // Settlements reduce the all-time debt but must not distort the monthly view:
+  // a payment made in June for a May debt would otherwise show as a June "debt".
   const { net } = useMemo(() => {
     const splits = filteredExpenses.flatMap((e) => e.splits);
-    return computeGlobalBalance(filteredExpenses, splits, filteredSettlements, userId, memberIds);
+    return computeGlobalBalance(filteredExpenses, splits, [], userId, memberIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredExpenses, filteredSettlements, userId]);
+  }, [filteredExpenses, userId]);
 
   // All-time debts — always shown regardless of selected month
   // This is the real outstanding balance: who owes who overall
@@ -287,20 +286,22 @@ export default function GroupDetail({
                       <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
                       <path d="M5 1v3M11 1v3M2 6h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                     </svg>
-                    <select
-                      className={styles.monthSelect}
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                    >
-                      {availableMonths.map((key) => (
-                        <option key={key} value={key}>
-                          {monthLabel(key)}
-                        </option>
-                      ))}
-                    </select>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
-                      <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <div className={styles.monthSelectWrap}>
+                      <span className={styles.monthSelectLabel}>{monthLabel(selectedMonth)}</span>
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
+                        <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <select
+                        className={styles.monthSelectOverlay}
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        aria-label="Seleccionar mes"
+                      >
+                        {availableMonths.map((key) => (
+                          <option key={key} value={key}>{monthLabel(key)}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
 

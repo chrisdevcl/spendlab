@@ -24,11 +24,9 @@ function toMonthKey(d: Date) {
 
 function monthLabel(key: string) {
   const [y, m] = key.split("-").map(Number);
-  const raw = new Date(y, m - 1, 1).toLocaleDateString("es-CL", {
-    month: "long",
-    year: "numeric",
-  });
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+  const date  = new Date(y, m - 1, 1);
+  const month = date.toLocaleDateString("es-CL", { month: "long" });
+  return `${month.charAt(0).toUpperCase() + month.slice(1)} ${y}`;
 }
 
 // Group a flat list of expenses by date label
@@ -172,18 +170,22 @@ export default function ActivityList({ expenses, globalBalance, userId }: Props)
               <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
               <path d="M5 1v3M11 1v3M2 6h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            <select
-              className={styles.monthSelect}
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-            >
-              {availableMonths.map((key) => (
-                <option key={key} value={key}>{monthLabel(key)}</option>
-              ))}
-            </select>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
-              <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <div className={styles.monthSelectWrap}>
+              <span className={styles.monthSelectLabel}>{monthLabel(selectedMonth)}</span>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.monthChevron} aria-hidden="true">
+                <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <select
+                className={styles.monthSelectOverlay}
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                aria-label="Seleccionar mes"
+              >
+                {availableMonths.map((key) => (
+                  <option key={key} value={key}>{monthLabel(key)}</option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
 
