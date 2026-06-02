@@ -168,11 +168,28 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
 
       if (vk) {
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+        let bytes: Uint8Array<ArrayBuffer> | null = null;
         try {
-          const bytes = urlBase64ToUint8Array(vk);
-          lines.push(`  decode: ${bytes.length} bytes, primer byte: 0x${bytes[0]?.toString(16)} ${bytes.length === 65 && bytes[0] === 4 ? "✓ válida" : "✗ INVÁLIDA"}`);
+          bytes = urlBase64ToUint8Array(vk);
+          lines.push(`  decode: ${bytes.length} bytes, primer byte: 0x${bytes[0]?.toString(16)} ${bytes.length === 65 && bytes[0] === 4 ? "✓ format OK" : "✗ INVÁLIDA"}`);
         } catch (e) {
           lines.push(`  decode ERROR: ${e}`);
+        }
+        // WebCrypto P-256 curve validation — deeper check than byte length
+        if (bytes) {
+          try {
+            await crypto.subtle.importKey(
+              "raw",
+              bytes,
+              { name: "ECDH", namedCurve: "P-256" },
+              true,
+              []
+            );
+            lines.push(`  WebCrypto P-256: ✓ punto válido en la curva`);
+          } catch (e) {
+            lines.push(`  WebCrypto P-256: ✗ NO ES PUNTO VÁLIDO — ${e}`);
+            lines.push(`  → Regenera las claves VAPID`);
+          }
         }
       }
 
@@ -197,13 +214,27 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         lines.push(`Server debug error: ${e}`);
       }
 
-      // 5. Permisos
+      // 5. pushManager.permissionState + permiso
       lines.push(`Notif.permission: ${Notification.permission}`);
       try {
         const ps = await navigator.permissions.query({ name: "notifications" as PermissionName });
         lines.push(`Permissions API: ${ps.state}`);
       } catch {
         lines.push(`Permissions API: no disponible`);
+      }
+      // pushManager.permissionState tells us what Chrome thinks about push for THIS VAPID key
+      if (regs.length > 0 && vk) {
+        try {
+          const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+          const bytes = urlBase64ToUint8Array(vk);
+          const pState = await regs[0].pushManager.permissionState({
+            userVisibleOnly: true,
+            applicationServerKey: bytes,
+          });
+          lines.push(`pushManager.permissionState: ${pState} ${pState === "granted" ? "✓" : "✗"}`);
+        } catch (e) {
+          lines.push(`pushManager.permissionState ERROR: ${e}`);
+        }
       }
 
       console.log("[push:diag]\n" + lines.join("\n"));
@@ -256,6 +287,29 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
           `Clave VAPID inválida: ${appServerKey.length} bytes, primer byte: 0x${appServerKey[0]?.toString(16)}. ` +
           "Debe ser una clave P-256 sin comprimir (65 bytes, primer byte 0x04)."
         );
+        return;
+      }
+
+      // Validate that the key is a genuine point on the P-256 curve.
+      // A key can pass the byte-length check but still be rejected by FCM
+      // if it's not a valid curve point — WebCrypto catches this.
+      console.log("[push:enable] 5b. WebCrypto P-256 validation…");
+      try {
+        await crypto.subtle.importKey(
+          "raw",
+          appServerKey,
+          { name: "ECDH", namedCurve: "P-256" },
+          true,
+          []
+        );
+        console.log("[push:enable] 5b. WebCrypto OK — key is valid P-256 point");
+      } catch (cryptoErr) {
+        console.error("[push:enable] 5b. WebCrypto FAILED:", cryptoErr);
+        setNotifErr(
+          "La clave VAPID no es un punto P-256 válido. " +
+          "Genera nuevas claves con: npx web-push generate-vapid-keys"
+        );
+        setNotifErrDetail(String(cryptoErr));
         return;
       }
 

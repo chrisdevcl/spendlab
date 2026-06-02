@@ -19,6 +19,10 @@ if (isDev) {
     dest: "public",
     register: true,
     skipWaiting: true,
+    // Ensure the activated SW immediately controls all open clients.
+    // Without this, navigator.serviceWorker.controller stays null until
+    // the next page load, which prevents push subscriptions in Chrome.
+    clientsClaim: true,
     // worker/index.js is merged into the generated sw.js — adds push handlers
     customWorkerDir: "worker",
     disable: false,
