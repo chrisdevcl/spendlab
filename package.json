@@ -7,6 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "generate-icons": "node scripts/generate-icons.mjs",
+    "generate-vapid-keys": "node scripts/generate-vapid-keys.mjs",
     "lint": "next lint",
     "lint:fix": "next lint --fix"
   },

@@ -104,6 +104,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
   );
   const [diagLoading, setDiagLoading]       = useState(false);
   const [diagInfo, setDiagInfo]             = useState<string | null>(null);
+  const [testLoading, setTestLoading]       = useState(false);
+  const [testResult, setTestResult]         = useState<string | null>(null);
 
   // Detect SW registration and existing subscription on mount.
   // controllerchange fires when SW finishes installing → re-check.
@@ -145,11 +147,60 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     ]);
   }
 
+  async function sendTestNotification() {
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setTestResult(`✓ Enviada a ${data.sent}/${data.total} dispositivo(s). Debería llegar en unos segundos.`);
+      } else if (res.ok && !data.ok) {
+        // Server reached push service but it rejected delivery
+        const first = data.detail?.[0];
+        setTestResult(`✗ El servicio de push rechazó el envío (${first?.statusCode ?? "?"}): ${first?.message ?? "error desconocido"}`);
+      } else {
+        setTestResult(`✗ ${data.error ?? `HTTP ${res.status}`}`);
+      }
+      console.log("[push:test]", data);
+    } catch (err) {
+      setTestResult(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTestLoading(false);
+    }
+  }
+
   async function runDiagnostic() {
     setDiagLoading(true);
     setDiagInfo(null);
     const lines: string[] = [];
     try {
+      // 0. Browser / environment — the AbortError is browser-specific, so we
+      // need to know exactly which engine and brand is being used.
+      lines.push(`--- Navegador ---`);
+      lines.push(`UA: ${navigator.userAgent}`);
+      const uaData = (navigator as Navigator & {
+        userAgentData?: { brands?: { brand: string; version: string }[] };
+      }).userAgentData;
+      if (uaData?.brands?.length) {
+        lines.push(`Brands: ${uaData.brands.map((b) => `${b.brand} ${b.version}`).join(", ")}`);
+      }
+      // Heuristic brand detection for browsers known to break FCM push
+      const ua = navigator.userAgent;
+      const brands = uaData?.brands?.map((b) => b.brand).join(" ") ?? "";
+      const isBrave = "brave" in navigator || /Brave/i.test(brands);
+      const isOpera = /OPR\//.test(ua) || /Opera/i.test(brands);
+      const isEdge  = /Edg\//.test(ua);
+      const isStandalone =
+        window.matchMedia("(display-mode: standalone)").matches ||
+        (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      lines.push(`Display mode: ${isStandalone ? "standalone (PWA instalada)" : "browser tab"}`);
+      if (isBrave) lines.push(`⚠ BRAVE detectado → activa brave://settings/privacy → "Usar servicios de Google para mensajería push"`);
+      if (isOpera) lines.push(`⚠ OPERA detectado → bug conocido en Opera 120+; prueba en Chrome/Edge`);
+      if (isEdge)  lines.push(`Edge detectado (usa FCM, debería funcionar)`);
+      lines.push(`Online: ${navigator.onLine}`);
+      lines.push(``);
+
       // 1. SW registrations
       const regs = await navigator.serviceWorker.getRegistrations();
       lines.push(`SWs registrados: ${regs.length}`);
@@ -240,10 +291,9 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
 
       if (regs.length > 0 && vk) {
         try {
-          const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
           const pState = await regs[0].pushManager.permissionState({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vk),
+            applicationServerKey: vk,
           });
           lines.push(`pushManager.permissionState: ${pState} ${pState === "granted" ? "✓" : "✗"}`);
         } catch (e) {
@@ -251,11 +301,9 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         }
       }
 
-      // 7. Live subscribe test — the definitive check
+      // 7. Live subscribe test — raw string key (como la guía de MDN/Medium)
       lines.push(`--- Test subscribe() ---`);
       if (regs.length > 0 && vk && Notification.permission === "granted") {
-        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-        const appKey = urlBase64ToUint8Array(vk);
         const testReg = regs[0];
         const existingSub = await testReg.pushManager.getSubscription().catch(() => null);
         if (existingSub) {
@@ -264,7 +312,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
           try {
             const testSub = await testReg.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: appKey,
+              applicationServerKey: vk,  // raw string, no Uint8Array
             });
             lines.push(`✓ subscribe() OK: ${testSub.endpoint.substring(0, 60)}…`);
             await testSub.unsubscribe().catch(() => {});
@@ -317,43 +365,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         installing: reg.installing?.state,
       });
 
-      const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-      const appServerKey = urlBase64ToUint8Array(vapidKey);
-
-      console.info("[push:enable] 5. VAPID key — length:", vapidKey.length,
-        "| decoded bytes:", appServerKey.length,
-        "| firstByte:", appServerKey[0]);
-
-      if (appServerKey.length !== 65 || appServerKey[0] !== 4) {
-        setNotifErr(
-          `Clave VAPID inválida: ${appServerKey.length} bytes, primer byte: 0x${appServerKey[0]?.toString(16)}. ` +
-          "Debe ser una clave P-256 sin comprimir (65 bytes, primer byte 0x04)."
-        );
-        return;
-      }
-
-      // Validate that the key is a genuine point on the P-256 curve.
-      // A key can pass the byte-length check but still be rejected by FCM
-      // if it's not a valid curve point — WebCrypto catches this.
-      console.log("[push:enable] 5b. WebCrypto P-256 validation…");
-      try {
-        await crypto.subtle.importKey(
-          "raw",
-          appServerKey,
-          { name: "ECDH", namedCurve: "P-256" },
-          true,
-          []
-        );
-        console.log("[push:enable] 5b. WebCrypto OK — key is valid P-256 point");
-      } catch (cryptoErr) {
-        console.error("[push:enable] 5b. WebCrypto FAILED:", cryptoErr);
-        setNotifErr(
-          "La clave VAPID no es un punto P-256 válido. " +
-          "Genera nuevas claves con: npx web-push generate-vapid-keys"
-        );
-        setNotifErrDetail(String(cryptoErr));
-        return;
-      }
+      console.info("[push:enable] 5. VAPID key length:", vapidKey.length);
 
       console.log("[push:enable] 6. getSubscription existente…");
       const existing = await reg.pushManager.getSubscription().catch(() => null);
@@ -363,12 +375,14 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         await existing.unsubscribe().catch((e) => console.warn("[push:enable] unsubscribe error:", e));
       }
 
-      console.log("[push:enable] 9. pushManager.subscribe()…");
+      // Pass applicationServerKey as raw string — Chrome converts it internally.
+      // Passing as Uint8Array via urlBase64ToUint8Array produced the same FCM error.
+      console.log("[push:enable] 9. pushManager.subscribe() con string key…");
       let sub;
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: appServerKey,
+          applicationServerKey: vapidKey,
         });
         console.log("[push:enable] 10. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
       } catch (subErr) {
@@ -445,15 +459,13 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       });
       console.log("[push:reset] 5. SW activado. active:", reg.active?.state);
 
-      const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-      const appServerKey = urlBase64ToUint8Array(vapidKey);
-      console.log("[push:reset] 6. pushManager.subscribe()… key length:", appServerKey.length, "firstByte:", appServerKey[0]);
+      console.log("[push:reset] 6. pushManager.subscribe() con string key…");
 
       let sub;
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: appServerKey,
+          applicationServerKey: vapidKey,
         });
         console.log("[push:reset] 7. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
       } catch (subErr) {
@@ -675,6 +687,25 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                     </button>
                   )}
               </div>
+              {isSubscribed && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <button
+                    className={styles.notifBtnReset}
+                    onClick={sendTestNotification}
+                    disabled={testLoading}
+                  >
+                    {testLoading ? "Enviando…" : "Enviar notificación de prueba"}
+                  </button>
+                  {testResult && (
+                    <p
+                      className={styles.notifErrDetail}
+                      style={{ marginTop: "0.4rem", color: testResult.startsWith("✓") ? "#0D9488" : undefined }}
+                    >
+                      {testResult}
+                    </p>
+                  )}
+                </div>
+              )}
               {notifErr && (
                 <div>
                   <p className={styles.notifError}>{notifErr}</p>
