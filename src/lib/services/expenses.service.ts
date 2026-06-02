@@ -16,10 +16,10 @@ export async function getGroupExpenses(
       .from("groups")
       .select("*")
       .eq("id", groupId)
-      .single();
+      .maybeSingle();
 
     if (gErr || !group) {
-      console.error("[getGroupExpenses] group error:", gErr?.message);
+      if (gErr) console.error("[getGroupExpenses] group error:", gErr.message);
       return null;
     }
 

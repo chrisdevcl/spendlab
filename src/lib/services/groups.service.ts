@@ -120,10 +120,10 @@ export async function getGroup(groupId: string): Promise<GroupWithMembers | null
       .from("groups")
       .select("*")
       .eq("id", groupId)
-      .single();
+      .maybeSingle();
 
     if (gErr || !group) {
-      console.error("[getGroup] error:", gErr?.message);
+      if (gErr) console.error("[getGroup] error:", gErr.message);
       return null;
     }
 

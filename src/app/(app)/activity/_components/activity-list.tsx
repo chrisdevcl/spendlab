@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import type { ExpenseWithDetails, GlobalBalance, PendingInvitation } from "@/types";
-import type { Settlement } from "@/types/database.types";
+import type { ExpenseWithDetails, PendingInvitation } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
 import styles from "./activity-list.module.css";
 
@@ -11,41 +10,8 @@ const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
 
 interface Props {
   expenses: ExpenseWithDetails[];
-  settlements: Settlement[];
-  globalBalance: GlobalBalance;
   userId: string;
   invitations: PendingInvitation[];
-}
-
-
-type ExpenseStatus = "te-deben" | "debes" | "al-dia" | null;
-
-function getExpenseStatus(
-  expense: ExpenseWithDetails,
-  settlements: Settlement[],
-  userId: string
-): ExpenseStatus {
-  const userSplit = expense.splits.find((s) => s.user_id === userId);
-  if (!userSplit || expense.splits.length <= 1) return null;
-
-  const payerId = expense.paid_by;
-  const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
-
-  if (payerId === userId) {
-    const others = expense.splits.filter((s) => s.user_id !== userId);
-    const allSettled = others.every((split) => {
-      const paid = groupSettlements
-        .filter((s) => s.paid_by === split.user_id && s.paid_to === userId)
-        .reduce((sum, s) => sum + s.amount, 0);
-      return paid >= split.amount;
-    });
-    return allSettled ? "al-dia" : "te-deben";
-  } else {
-    const paid = groupSettlements
-      .filter((s) => s.paid_by === userId && s.paid_to === payerId)
-      .reduce((sum, s) => sum + s.amount, 0);
-    return paid >= userSplit.amount ? "al-dia" : "debes";
-  }
 }
 
 function toMonthKey(d: Date) {
@@ -82,8 +48,7 @@ function groupByDate(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ActivityList({ expenses, settlements, globalBalance, userId, invitations }: Props) {
-  const { debts } = globalBalance;
+export default function ActivityList({ expenses, userId, invitations }: Props) {
   const [notifOpen, setNotifOpen] = useState(false);
 
   // ── Expense notifications (localStorage-based read tracking) ────────────
@@ -171,18 +136,12 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
 
   const groups = useMemo(() => groupByDate(filteredExpenses), [filteredExpenses]);
 
-  // Monthly totals
+  // Monthly totals — use the user's split amount, not the full expense amount
   const totalExpenses = filteredExpenses.length;
-  const totalAmount   = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-
-  // All-time debts
-  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
-  const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
-
-  const hasMultiMemberGroups = useMemo(
-    () => expenses.some((e) => e.splits.some((s) => s.user_id !== userId)),
-    [expenses, userId]
-  );
+  const totalAmount   = filteredExpenses.reduce((s, e) => {
+    const userSplit = e.splits.find((sp) => sp.user_id === userId);
+    return s + (userSplit?.amount ?? e.amount);
+  }, 0);
 
   return (
     <div className={styles.page}>
@@ -254,23 +213,6 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
             {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"}
           </p>
 
-          {/* DEBES / TE DEBEN row — siempre visible en grupos con múltiples integrantes */}
-          {hasMultiMemberGroups && (
-            <>
-              <div className={styles.balanceDivider} />
-              <div className={styles.balanceRow}>
-                <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>DEBES</span>
-                  <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
-                </div>
-                <div className={styles.balanceStat}>
-                  <span className={styles.balanceStatLabel}>TE DEBEN</span>
-                  <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
-                </div>
-              </div>
-            </>
-          )}
-
         </div>
 
         {/* ── Expense list ─────────────────────────────────────────────── */}
@@ -297,7 +239,7 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
               <p className={styles.groupLabel}>{label}</p>
               <div className={styles.expenseList}>
                 {groupExpenses.map((expense) => (
-                  <ExpenseRow key={expense.id} expense={expense} settlements={settlements} userId={userId} />
+                  <ExpenseRow key={expense.id} expense={expense} userId={userId} />
                 ))}
               </div>
             </section>
@@ -374,8 +316,9 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
 
 // ── Expense row ───────────────────────────────────────────────────────────────
 
-function ExpenseRow({ expense, settlements, userId }: { expense: ExpenseWithDetails; settlements: Settlement[]; userId: string }) {
-  const status = getExpenseStatus(expense, settlements, userId);
+function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: string }) {
+  const userSplit = expense.splits.find((s) => s.user_id === userId);
+  const displayAmount = userSplit?.amount ?? expense.amount;
   return (
     <Link href={`/activity/${expense.id}`} className={styles.expenseRow}>
       <div className={styles.expenseLeft}>
@@ -383,14 +326,11 @@ function ExpenseRow({ expense, settlements, userId }: { expense: ExpenseWithDeta
         <div className={styles.badgeRow}>
           <span className={styles.groupBadge}>{expense.group.name}</span>
           <span className={styles.categoryBadge}>Sin categoría</span>
-          {status === "te-deben" && <span className={styles.statusTeDeben}>TE DEBEN</span>}
-          {status === "debes"    && <span className={styles.statusDebes}>DEBO</span>}
-          {status === "al-dia"   && <span className={styles.statusAlDia}>AL DÍA</span>}
         </div>
       </div>
       <div className={styles.expenseRight}>
         <div className={styles.expenseAmountRow}>
-          <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+          <p className={styles.expenseAmount}>{formatCLP(displayAmount)}</p>
           <svg className={styles.expenseChevron} width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

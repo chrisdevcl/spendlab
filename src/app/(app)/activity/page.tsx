@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAllUserExpenses } from "@/lib/services/expenses.service";
-import { computeGlobalBalance } from "@/lib/utils/balance";
 import ActivityList from "./_components/activity-list";
-import type { ExpenseWithDetails, GlobalBalance, PendingInvitation } from "@/types";
-import type { Profile, Settlement } from "@/types/database.types";
+import type { ExpenseWithDetails, PendingInvitation } from "@/types";
+import type { Profile } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -75,14 +74,6 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
   },
 ];
 
-const MOCK_GLOBAL_BALANCE: GlobalBalance = {
-  net: -26000,
-  debts: [
-    { fromUserId: "u1", toUserId: "u2", amount: 20000, fromProfile: U1, toProfile: U2 },
-    { fromUserId: "u1", toUserId: "u3", amount: 6000, fromProfile: U1, toProfile: U3 },
-  ],
-};
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ActivityPage() {
@@ -90,8 +81,6 @@ export default async function ActivityPage() {
     return (
       <ActivityList
         expenses={MOCK_EXPENSES}
-        settlements={[]}
-        globalBalance={MOCK_GLOBAL_BALANCE}
         userId="u1"
         invitations={[]}
       />
@@ -115,49 +104,15 @@ export default async function ActivityPage() {
     return (
       <ActivityList
         expenses={[]}
-        settlements={[]}
-        globalBalance={{ net: 0, debts: [] }}
         userId={user.id}
         invitations={invitations}
       />
     );
   }
 
-  const groupIds = [...new Set(expenses.map((e) => e.group_id))];
-  const { data: settlementsRaw } = await supabase
-    .from("settlements")
-    .select("*")
-    .in("group_id", groupIds);
-  const settlements = (settlementsRaw ?? []) as Settlement[];
-
-  // Build profile map
-  const profileMap = new Map<string, Profile>();
-  for (const exp of expenses) {
-    if (exp.payer) profileMap.set(exp.payer.id, exp.payer);
-    for (const s of exp.splits) {
-      if (s.profile) profileMap.set(s.profile.id, s.profile);
-    }
-  }
-
-  const allUserIds = [...profileMap.keys()];
-  const allSplits = expenses.flatMap((e) => e.splits);
-
-  // Debts: all-time outstanding amounts
-  const rawBalance = computeGlobalBalance(expenses, allSplits, settlements, user.id, allUserIds);
-  const globalBalance: GlobalBalance = {
-    net: rawBalance.net,
-    debts: rawBalance.debts.map((d) => ({
-      ...d,
-      fromProfile: profileMap.get(d.fromUserId),
-      toProfile: profileMap.get(d.toUserId),
-    })),
-  };
-
   return (
     <ActivityList
       expenses={expenses}
-      settlements={settlements}
-      globalBalance={globalBalance}
       userId={user.id}
       invitations={invitations}
     />

@@ -386,8 +386,6 @@ export default function GroupDetail({
   function handleDeleteGroup() {
     startDeleteGroupTransition(async () => {
       await deleteGroupAction(deleteTargetGroupId);
-      router.refresh();
-      // If deleting current group, navigate away; otherwise stay
       if (deleteTargetGroupId === group.id) {
         router.replace("/groups");
       } else {
