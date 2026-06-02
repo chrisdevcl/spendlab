@@ -8,7 +8,6 @@ import type { GroupWithMembers, PendingInvitation } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
 import { createGroup, acceptInvitation, rejectInvitation } from "../actions";
 import { createClient } from "@/lib/supabase/client";
-import { urlBase64ToUint8Array } from "@/lib/utils/push";
 import styles from "./groups-list.module.css";
 
 interface Props {
@@ -66,9 +65,7 @@ export default function GroupsList({ groups, profile, invitations }: Props) {
           if (existing) return existing;
           return reg.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(
-              process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
-            ),
+            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
           });
         })
       )

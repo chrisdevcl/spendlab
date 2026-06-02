@@ -102,10 +102,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
   const [swReady, setSwReady]               = useState<boolean | null>(
     notifSupported ? null : false
   );
-  const [diagLoading, setDiagLoading]       = useState(false);
-  const [diagInfo, setDiagInfo]             = useState<string | null>(null);
   const [testLoading, setTestLoading]       = useState(false);
-  const [testResult, setTestResult]         = useState<string | null>(null);
+  const [testResult, setTestResult]         = useState("");
 
   // Detect SW registration and existing subscription on mount.
   // controllerchange fires when SW finishes installing → re-check.
@@ -147,192 +145,22 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     ]);
   }
 
+  // Sends a sample "expense added" notification to preview how it looks.
   async function sendTestNotification() {
+    setTestResult("");
     setTestLoading(true);
-    setTestResult(null);
     try {
       const res = await fetch("/api/push/test", { method: "POST" });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setTestResult(`✓ Enviada a ${data.sent}/${data.total} dispositivo(s). Debería llegar en unos segundos.`);
-      } else if (res.ok && !data.ok) {
-        // Server reached push service but it rejected delivery
-        const first = data.detail?.[0];
-        setTestResult(`✗ El servicio de push rechazó el envío (${first?.statusCode ?? "?"}): ${first?.message ?? "error desconocido"}`);
+        setTestResult(`Enviada a ${data.sent} dispositivo${data.sent === 1 ? "" : "s"} — debería llegar en unos segundos.`);
       } else {
-        setTestResult(`✗ ${data.error ?? `HTTP ${res.status}`}`);
+        setTestResult(data.error ?? "No se pudo enviar la notificación de prueba.");
       }
-      console.log("[push:test]", data);
-    } catch (err) {
-      setTestResult(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      setTestResult("No se pudo enviar la notificación de prueba.");
     } finally {
       setTestLoading(false);
-    }
-  }
-
-  async function runDiagnostic() {
-    setDiagLoading(true);
-    setDiagInfo(null);
-    const lines: string[] = [];
-    try {
-      // 0. Browser / environment — the AbortError is browser-specific, so we
-      // need to know exactly which engine and brand is being used.
-      lines.push(`--- Navegador ---`);
-      lines.push(`UA: ${navigator.userAgent}`);
-      const uaData = (navigator as Navigator & {
-        userAgentData?: { brands?: { brand: string; version: string }[] };
-      }).userAgentData;
-      if (uaData?.brands?.length) {
-        lines.push(`Brands: ${uaData.brands.map((b) => `${b.brand} ${b.version}`).join(", ")}`);
-      }
-      // Heuristic brand detection for browsers known to break FCM push
-      const ua = navigator.userAgent;
-      const brands = uaData?.brands?.map((b) => b.brand).join(" ") ?? "";
-      const isBrave = "brave" in navigator || /Brave/i.test(brands);
-      const isOpera = /OPR\//.test(ua) || /Opera/i.test(brands);
-      const isEdge  = /Edg\//.test(ua);
-      const isStandalone =
-        window.matchMedia("(display-mode: standalone)").matches ||
-        (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      lines.push(`Display mode: ${isStandalone ? "standalone (PWA instalada)" : "browser tab"}`);
-      if (isBrave) lines.push(`⚠ BRAVE detectado → activa brave://settings/privacy → "Usar servicios de Google para mensajería push"`);
-      if (isOpera) lines.push(`⚠ OPERA detectado → bug conocido en Opera 120+; prueba en Chrome/Edge`);
-      if (isEdge)  lines.push(`Edge detectado (usa FCM, debería funcionar)`);
-      lines.push(`Online: ${navigator.onLine}`);
-      lines.push(``);
-
-      // 1. SW registrations
-      const regs = await navigator.serviceWorker.getRegistrations();
-      lines.push(`SWs registrados: ${regs.length}`);
-      for (const r of regs) {
-        const sub = await r.pushManager.getSubscription().catch(() => null);
-        lines.push(`  scope=${r.scope}`);
-        lines.push(`  active=${r.active?.state ?? "—"} waiting=${r.waiting?.state ?? "—"}`);
-        lines.push(`  sub=${sub ? sub.endpoint.substring(0, 50) + "…" : "ninguna"}`);
-      }
-
-      // 2. SW controller
-      const ctrl = navigator.serviceWorker.controller;
-      lines.push(`SW controller: ${ctrl ? `${ctrl.scriptURL} (${ctrl.state})` : "✗ ninguno — el SW no controla esta página"}`);
-
-      // 3. Inspect actual /sw.js content in production
-      try {
-        const swResp = await fetch("/sw.js", { cache: "no-store" });
-        const swText = await swResp.text();
-        const isWorkbox = swText.length > 8_000;
-        const hasPushListener = /addEventListener\s*\(\s*['"]push['"]/.test(swText);
-        const hasNotifClick  = /addEventListener\s*\(\s*['"]notificationclick['"]/.test(swText);
-        const hasClaim       = /clients\.claim/.test(swText);
-        const hasSkipWaiting = /skipWaiting/.test(swText);
-        lines.push(`--- /sw.js ---`);
-        lines.push(`  tamaño: ${swText.length} chars (${isWorkbox ? "Workbox generado" : "SW manual simple"})`);
-        lines.push(`  push handler: ${hasPushListener ? "✓" : "✗ FALTA — causa directa del error"}`);
-        lines.push(`  notificationclick: ${hasNotifClick ? "✓" : "✗"}`);
-        lines.push(`  clients.claim: ${hasClaim ? "✓" : "✗ FALTA — explica controller=null"}`);
-        lines.push(`  skipWaiting: ${hasSkipWaiting ? "✓" : "✗"}`);
-      } catch (e) {
-        lines.push(`/sw.js fetch error: ${e}`);
-      }
-
-      // 4. VAPID key — format + WebCrypto P-256 validation
-      const vk = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      lines.push(`--- VAPID key (cliente) ---`);
-      lines.push(`${vk ? `${vk.length} chars, inicia=${vk.substring(0, 8)}…` : "✗ NO DEFINIDA"}`);
-
-      if (vk) {
-        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-        let bytes: Uint8Array<ArrayBuffer> | null = null;
-        try {
-          bytes = urlBase64ToUint8Array(vk);
-          lines.push(`  decode: ${bytes.length} bytes, primer byte: 0x${bytes[0]?.toString(16)} ${bytes.length === 65 && bytes[0] === 4 ? "✓ format OK" : "✗ INVÁLIDA"}`);
-        } catch (e) {
-          lines.push(`  decode ERROR: ${e}`);
-        }
-        if (bytes) {
-          try {
-            await crypto.subtle.importKey("raw", bytes, { name: "ECDH", namedCurve: "P-256" }, true, []);
-            lines.push(`  WebCrypto P-256: ✓ punto válido`);
-          } catch (e) {
-            lines.push(`  WebCrypto P-256: ✗ INVÁLIDO — ${e}`);
-            lines.push(`  → Regenera claves: npx web-push generate-vapid-keys`);
-          }
-        }
-      }
-
-      // 5. Server VAPID check
-      try {
-        const r = await fetch("/api/push/debug");
-        if (r.ok) {
-          const data = await r.json() as Record<string, unknown>;
-          lines.push(`--- VAPID (servidor) ---`);
-          const spk = data.serverPublicKey as { set?: boolean; length?: number };
-          const cpk = data.clientPublicKey as { set?: boolean; length?: number };
-          lines.push(`  VAPID_PUBLIC_KEY: ${spk?.set ? `${spk.length} chars ✓` : "✗ NO DEFINIDA"}`);
-          lines.push(`  NEXT_PUBLIC: ${cpk?.set ? `${cpk.length} chars ✓` : "✗ NO DEFINIDA"}`);
-          lines.push(`  Coinciden: ${data.keysMatch ? "✓ SÍ" : "✗ NO"}`);
-          const dec = data.keyDecodeInfo as { valid?: boolean; error?: string };
-          lines.push(`  Decode servidor: ${dec?.error ? `✗ ${dec.error}` : dec?.valid ? "✓" : "✗"}`);
-          lines.push(`  Subject: ${data.subject ?? "✗ NO DEFINIDO"}`);
-          lines.push(`  Subs en DB: ${data.subscriptionsInDb}`);
-        } else {
-          lines.push(`Server debug: HTTP ${r.status}`);
-        }
-      } catch (e) {
-        lines.push(`Server debug error: ${e}`);
-      }
-
-      // 6. Permissions
-      lines.push(`--- Permisos ---`);
-      lines.push(`Notification.permission: ${Notification.permission}`);
-      try {
-        const ps = await navigator.permissions.query({ name: "notifications" as PermissionName });
-        lines.push(`Permissions API: ${ps.state}`);
-      } catch { lines.push(`Permissions API: no disponible`); }
-
-      if (regs.length > 0 && vk) {
-        try {
-          const pState = await regs[0].pushManager.permissionState({
-            userVisibleOnly: true,
-            applicationServerKey: vk,
-          });
-          lines.push(`pushManager.permissionState: ${pState} ${pState === "granted" ? "✓" : "✗"}`);
-        } catch (e) {
-          lines.push(`pushManager.permissionState: ERROR — ${e}`);
-        }
-      }
-
-      // 7. Live subscribe test — raw string key (como la guía de MDN/Medium)
-      lines.push(`--- Test subscribe() ---`);
-      if (regs.length > 0 && vk && Notification.permission === "granted") {
-        const testReg = regs[0];
-        const existingSub = await testReg.pushManager.getSubscription().catch(() => null);
-        if (existingSub) {
-          lines.push(`Ya hay suscripción activa: ${existingSub.endpoint.substring(0, 50)}…`);
-        } else {
-          try {
-            const testSub = await testReg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: vk,  // raw string, no Uint8Array
-            });
-            lines.push(`✓ subscribe() OK: ${testSub.endpoint.substring(0, 60)}…`);
-            await testSub.unsubscribe().catch(() => {});
-            lines.push(`(suscripción de prueba cancelada)`);
-          } catch (subErr) {
-            const name = subErr instanceof Error ? subErr.name : typeof subErr;
-            const msg  = subErr instanceof Error ? subErr.message : String(subErr);
-            lines.push(`✗ subscribe() FALLÓ: ${name}: ${msg}`);
-          }
-        }
-      } else {
-        lines.push(`No se puede probar: ${regs.length === 0 ? "no hay SW" : !vk ? "no hay VAPID key" : "permiso no concedido"}`);
-      }
-
-      console.log("[push:diag]\n" + lines.join("\n"));
-    } catch (e) {
-      lines.push(`Diagnóstico error: ${e}`);
-    } finally {
-      setDiagInfo(lines.join("\n"));
-      setDiagLoading(false);
     }
   }
 
@@ -340,10 +168,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     setNotifErr("");
     setNotifLoading(true);
     try {
-      console.log("[push:enable] 1. requestPermission");
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
-      console.log("[push:enable] 2. permission =", permission);
       if (permission !== "granted") {
         setNotifLoading(false);
         return;
@@ -355,58 +181,30 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         return;
       }
 
-      console.log("[push:enable] 3. getSwReg…");
       const reg = await getSwReg();
-      console.log("[push:enable] 4. SW reg:", {
-        scope: reg.scope,
-        scriptURL: (reg as unknown as { scope: string; updateViaCache?: string }).scope,
-        active: reg.active?.state,
-        waiting: reg.waiting?.state,
-        installing: reg.installing?.state,
+
+      // Drop any stale subscription before resubscribing (avoids key-mismatch errors).
+      const existing = await reg.pushManager.getSubscription().catch(() => null);
+      if (existing) await existing.unsubscribe().catch(() => {});
+
+      // applicationServerKey as a raw base64url string — the browser decodes it.
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey,
       });
 
-      console.info("[push:enable] 5. VAPID key length:", vapidKey.length);
-
-      console.log("[push:enable] 6. getSubscription existente…");
-      const existing = await reg.pushManager.getSubscription().catch(() => null);
-      console.log("[push:enable] 7. existing sub:", existing ? existing.endpoint.substring(0, 50) + "…" : "ninguna");
-      if (existing) {
-        console.log("[push:enable] 8. unsubscribe existente…");
-        await existing.unsubscribe().catch((e) => console.warn("[push:enable] unsubscribe error:", e));
-      }
-
-      // Pass applicationServerKey as raw string — Chrome converts it internally.
-      // Passing as Uint8Array via urlBase64ToUint8Array produced the same FCM error.
-      console.log("[push:enable] 9. pushManager.subscribe() con string key…");
-      let sub;
-      try {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: vapidKey,
-        });
-        console.log("[push:enable] 10. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
-      } catch (subErr) {
-        const name = subErr instanceof Error ? subErr.name : typeof subErr;
-        const msg  = subErr instanceof Error ? subErr.message : String(subErr);
-        const stack = subErr instanceof Error ? subErr.stack : undefined;
-        console.error("[push:enable] subscribe FAILED:", { name, msg, stack, raw: subErr });
-        throw subErr;
-      }
-
-      console.log("[push:enable] 11. POST /api/push/subscribe…");
       const res = await fetch("/api/push/subscribe", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(sub.toJSON()),
       });
-      console.log("[push:enable] 12. subscribe API response:", res.status);
       if (res.ok) {
         setIsSubscribed(true);
       } else {
         setNotifErr("Error al guardar la suscripción. Intenta de nuevo.");
       }
     } catch (err) {
-      console.error("[push:enable] CATCH:", err);
+      console.error("[enableNotifications]", err);
       const name = err instanceof Error ? err.name : "Error";
       const msg  = err instanceof Error ? err.message : String(err);
       setNotifErr("No se pudo activar. Intenta 'Reiniciar suscripción' más abajo.");
@@ -422,12 +220,9 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     setNotifErrDetail("");
     setNotifLoading(true);
     try {
-      console.log("[push:reset] 1. getRegistrations…");
       const regs = await navigator.serviceWorker.getRegistrations();
-      console.log("[push:reset] 2. SWs encontrados:", regs.length);
       await Promise.all(regs.map(async (reg) => {
         const sub = await reg.pushManager.getSubscription().catch(() => null);
-        console.log("[push:reset] unregister scope:", reg.scope, "sub:", !!sub);
         if (sub) {
           await fetch("/api/push/subscribe", {
             method: "DELETE",
@@ -443,46 +238,29 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidKey) { setNotifErr("Clave VAPID no configurada."); return; }
 
-      console.log("[push:reset] 3. register /sw.js…");
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      console.log("[push:reset] 4. reg OK, active:", reg.active?.state, "waiting:", reg.waiting?.state, "installing:", reg.installing?.state);
 
+      // Wait for the fresh SW to activate before subscribing.
       await new Promise<void>((resolve) => {
         if (reg.active) { resolve(); return; }
         const sw = reg.installing ?? reg.waiting;
         if (!sw) { resolve(); return; }
         sw.addEventListener("statechange", function handler() {
-          console.log("[push:reset] SW state →", sw.state);
           if (sw.state === "activated") { sw.removeEventListener("statechange", handler); resolve(); }
         });
         setTimeout(resolve, 5000);
       });
-      console.log("[push:reset] 5. SW activado. active:", reg.active?.state);
 
-      console.log("[push:reset] 6. pushManager.subscribe() con string key…");
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey,
+      });
 
-      let sub;
-      try {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: vapidKey,
-        });
-        console.log("[push:reset] 7. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
-      } catch (subErr) {
-        const name = subErr instanceof Error ? subErr.name : typeof subErr;
-        const msg  = subErr instanceof Error ? subErr.message : String(subErr);
-        const stack = subErr instanceof Error ? subErr.stack : undefined;
-        console.error("[push:reset] subscribe FAILED:", { name, msg, stack, raw: subErr });
-        throw subErr;
-      }
-
-      console.log("[push:reset] 8. POST /api/push/subscribe…");
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
       });
-      console.log("[push:reset] 9. API response:", res.status);
       if (res.ok) {
         setIsSubscribed(true);
         setSwReady(true);
@@ -490,7 +268,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         setNotifErr("Suscripción creada pero no se pudo guardar en el servidor.");
       }
     } catch (err) {
-      console.error("[push:reset] CATCH:", err);
+      console.error("[resetAndSubscribe]", err);
       const name = err instanceof Error ? err.name : "Error";
       const msg  = err instanceof Error ? err.message : String(err);
       setNotifErr("Reset falló. Limpia los datos del sitio en ajustes del navegador.");
@@ -688,7 +466,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                   )}
               </div>
               {isSubscribed && (
-                <div style={{ marginTop: "0.5rem" }}>
+                <>
                   <button
                     className={styles.notifBtnReset}
                     onClick={sendTestNotification}
@@ -696,15 +474,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                   >
                     {testLoading ? "Enviando…" : "Enviar notificación de prueba"}
                   </button>
-                  {testResult && (
-                    <p
-                      className={styles.notifErrDetail}
-                      style={{ marginTop: "0.4rem", color: testResult.startsWith("✓") ? "#0D9488" : undefined }}
-                    >
-                      {testResult}
-                    </p>
-                  )}
-                </div>
+                  {testResult && <p className={styles.notifTestResult}>{testResult}</p>}
+                </>
               )}
               {notifErr && (
                 <div>
@@ -723,21 +494,6 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                   )}
                 </div>
               )}
-              {/* ── Diagnóstico temporal ── */}
-              <div style={{ marginTop: "0.75rem" }}>
-                <button
-                  onClick={runDiagnostic}
-                  disabled={diagLoading}
-                  style={{ fontSize: "0.7rem", opacity: 0.5, cursor: "pointer", background: "none", border: "1px solid currentColor", borderRadius: "4px", padding: "2px 8px", color: "inherit" }}
-                >
-                  {diagLoading ? "Diagnosticando…" : "Diagnóstico push"}
-                </button>
-                {diagInfo && (
-                  <pre style={{ marginTop: "0.5rem", fontSize: "0.65rem", opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-all", background: "rgba(0,0,0,0.2)", padding: "0.5rem", borderRadius: "4px" }}>
-                    {diagInfo}
-                  </pre>
-                )}
-              </div>
             </div>
           </section>
         )}

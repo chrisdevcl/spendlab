@@ -23,8 +23,11 @@ function initWebPush() {
   return false;
 }
 
-async function sendToUsers(userIds: string[], payload: string) {
-  if (!initWebPush()) return; // VAPID not configured — skip silently
+async function sendToUsers(
+  userIds: string[],
+  payload: string
+): Promise<{ sent: number; total: number }> {
+  if (!initWebPush()) return { sent: 0, total: 0 }; // VAPID not configured
 
   const admin = createAdminClient();
 
@@ -33,7 +36,7 @@ async function sendToUsers(userIds: string[], payload: string) {
     .select("endpoint, p256dh, auth")
     .in("user_id", userIds);
 
-  if (!subs || subs.length === 0) return;
+  if (!subs || subs.length === 0) return { sent: 0, total: 0 };
 
   const results = await Promise.allSettled(
     subs.map((sub) =>
@@ -61,7 +64,16 @@ async function sendToUsers(userIds: string[], payload: string) {
       .delete()
       .in("endpoint", expiredEndpoints);
   }
+
+  const sent = results.filter((r) => r.status === "fulfilled").length;
+  return { sent, total: subs.length };
 }
+
+const clpFormatter = new Intl.NumberFormat("es-CL", {
+  style: "currency",
+  currency: "CLP",
+  maximumFractionDigits: 0,
+});
 
 // ─── Public helpers ───────────────────────────────────────────────────────────
 
@@ -96,11 +108,7 @@ export async function notifyExpenseAdded({
 
     const payerName = payer?.display_name ?? "Alguien";
     const groupName = group?.name ?? "SpendLab";
-    const formatted = new Intl.NumberFormat("es-CL", {
-      style: "currency",
-      currency: "CLP",
-      maximumFractionDigits: 0,
-    }).format(amount);
+    const formatted = clpFormatter.format(amount);
 
     const payload = JSON.stringify({
       title: groupName,
@@ -145,4 +153,44 @@ export async function notifyGroupInvitation({
   } catch (err) {
     console.error("[notifyGroupInvitation]", err);
   }
+}
+
+/**
+ * Sends a sample "expense added" notification to the user themselves, so they
+ * can preview exactly how a real expense notification looks. Uses the same
+ * payload shape as notifyExpenseAdded.
+ */
+export async function notifyTestExpense(
+  userId: string
+): Promise<{ sent: number; total: number }> {
+  const admin = createAdminClient();
+
+  const [{ data: profile }, { data: membership }] = await Promise.all([
+    admin.from("profiles").select("display_name").eq("id", userId).single(),
+    admin
+      .from("group_members")
+      .select("group_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  let groupName = "SpendLab";
+  if (membership?.group_id) {
+    const { data: group } = await admin
+      .from("groups")
+      .select("name")
+      .eq("id", membership.group_id)
+      .single();
+    groupName = group?.name ?? groupName;
+  }
+
+  const payerName = profile?.display_name ?? "Alguien";
+  const payload = JSON.stringify({
+    title: groupName,
+    body: `${payerName} añadió "Almuerzo compartido" por ${clpFormatter.format(12500)}`,
+    url: "/activity",
+  });
+
+  return sendToUsers([userId], payload);
 }

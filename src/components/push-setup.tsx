@@ -12,17 +12,15 @@ export default function PushSetup() {
 
     navigator.serviceWorker
       .register("/sw.js", { scope: "/" })
-      .then((reg) => {
-        console.log("[PushSetup] SW registered, active:", reg.active?.state);
-
+      .then(() => {
         navigator.serviceWorker.addEventListener("message", (event) => {
           if (event.data?.type === "NAVIGATE") {
             window.location.href = event.data.url;
           }
         });
       })
-      .catch((err) => {
-        console.warn("[PushSetup] SW registration failed:", err);
+      .catch(() => {
+        /* SW registration is optional */
       });
   }, []);
 
