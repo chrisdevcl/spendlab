@@ -102,6 +102,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
   const [swReady, setSwReady]               = useState<boolean | null>(
     notifSupported ? null : false
   );
+  const [diagLoading, setDiagLoading]       = useState(false);
+  const [diagInfo, setDiagInfo]             = useState<string | null>(null);
 
   // Detect SW registration and existing subscription on mount.
   // controllerchange fires when SW finishes installing → re-check.
@@ -143,12 +145,84 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     ]);
   }
 
+  async function runDiagnostic() {
+    setDiagLoading(true);
+    setDiagInfo(null);
+    const lines: string[] = [];
+    try {
+      // 1. SW registrations
+      const regs = await navigator.serviceWorker.getRegistrations();
+      lines.push(`SWs registrados: ${regs.length}`);
+      for (const r of regs) {
+        const sub = await r.pushManager.getSubscription().catch(() => null);
+        lines.push(`  scope=${r.scope} active=${r.active?.state ?? "—"} sub=${sub ? sub.endpoint.substring(0, 40) + "…" : "ninguna"}`);
+      }
+
+      // 2. SW controlador
+      const ctrl = navigator.serviceWorker.controller;
+      lines.push(`SW controller: ${ctrl ? `${ctrl.scriptURL} (${ctrl.state})` : "ninguno"}`);
+
+      // 3. VAPID key local
+      const vk = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      lines.push(`NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${vk ? `${vk.length} chars, inicia=${vk.substring(0,8)}…` : "NO DEFINIDA"}`);
+
+      if (vk) {
+        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+        try {
+          const bytes = urlBase64ToUint8Array(vk);
+          lines.push(`  decode: ${bytes.length} bytes, primer byte: 0x${bytes[0]?.toString(16)} ${bytes.length === 65 && bytes[0] === 4 ? "✓ válida" : "✗ INVÁLIDA"}`);
+        } catch (e) {
+          lines.push(`  decode ERROR: ${e}`);
+        }
+      }
+
+      // 4. Server-side VAPID check
+      try {
+        const r = await fetch("/api/push/debug");
+        if (r.ok) {
+          const data = await r.json() as Record<string, unknown>;
+          lines.push(`--- Servidor ---`);
+          lines.push(`VAPID_PUBLIC_KEY: ${(data.serverPublicKey as { set?: boolean; length?: number } | undefined)?.set ? `${(data.serverPublicKey as { length?: number }).length} chars` : "NO DEFINIDA"}`);
+          lines.push(`NEXT_PUBLIC (server): ${(data.clientPublicKey as { set?: boolean; length?: number } | undefined)?.set ? `${(data.clientPublicKey as { length?: number }).length} chars` : "NO DEFINIDA"}`);
+          lines.push(`Claves coinciden: ${data.keysMatch ? "✓ SÍ" : "✗ NO — PROBLEMA DETECTADO"}`);
+          const dec = data.keyDecodeInfo as { length?: number; firstByte?: number; valid?: boolean; error?: string } | undefined;
+          if (dec?.error) lines.push(`Decode error: ${dec.error}`);
+          else lines.push(`Decode server: ${dec?.length} bytes, primer byte: 0x${dec?.firstByte?.toString(16)} ${dec?.valid ? "✓" : "✗"}`);
+          lines.push(`VAPID_SUBJECT: ${data.subject ?? "NO DEFINIDO"}`);
+          lines.push(`Suscripciones en DB: ${data.subscriptionsInDb}`);
+        } else {
+          lines.push(`Server debug: HTTP ${r.status}`);
+        }
+      } catch (e) {
+        lines.push(`Server debug error: ${e}`);
+      }
+
+      // 5. Permisos
+      lines.push(`Notif.permission: ${Notification.permission}`);
+      try {
+        const ps = await navigator.permissions.query({ name: "notifications" as PermissionName });
+        lines.push(`Permissions API: ${ps.state}`);
+      } catch {
+        lines.push(`Permissions API: no disponible`);
+      }
+
+      console.log("[push:diag]\n" + lines.join("\n"));
+    } catch (e) {
+      lines.push(`Diagnóstico error: ${e}`);
+    } finally {
+      setDiagInfo(lines.join("\n"));
+      setDiagLoading(false);
+    }
+  }
+
   async function enableNotifications() {
     setNotifErr("");
     setNotifLoading(true);
     try {
+      console.log("[push:enable] 1. requestPermission");
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
+      console.log("[push:enable] 2. permission =", permission);
       if (permission !== "granted") {
         setNotifLoading(false);
         return;
@@ -160,16 +234,22 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         return;
       }
 
+      console.log("[push:enable] 3. getSwReg…");
       const reg = await getSwReg();
+      console.log("[push:enable] 4. SW reg:", {
+        scope: reg.scope,
+        scriptURL: (reg as unknown as { scope: string; updateViaCache?: string }).scope,
+        active: reg.active?.state,
+        waiting: reg.waiting?.state,
+        installing: reg.installing?.state,
+      });
+
       const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
       const appServerKey = urlBase64ToUint8Array(vapidKey);
 
-      // Diagnostic: log key info to help catch misconfigured VAPID keys
-      console.info(
-        "[push] VAPID key — string length:", vapidKey.length,
+      console.info("[push:enable] 5. VAPID key — length:", vapidKey.length,
         "| decoded bytes:", appServerKey.length,
-        "| first byte (should be 4 for uncompressed P-256):", appServerKey[0]
-      );
+        "| firstByte:", appServerKey[0]);
 
       if (appServerKey.length !== 65 || appServerKey[0] !== 4) {
         setNotifErr(
@@ -179,28 +259,44 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         return;
       }
 
-      // Clear any existing subscription first — avoids "key mismatch" errors
-      // when a stale subscription with a different VAPID key is present
+      console.log("[push:enable] 6. getSubscription existente…");
       const existing = await reg.pushManager.getSubscription().catch(() => null);
-      if (existing) await existing.unsubscribe().catch(() => {});
+      console.log("[push:enable] 7. existing sub:", existing ? existing.endpoint.substring(0, 50) + "…" : "ninguna");
+      if (existing) {
+        console.log("[push:enable] 8. unsubscribe existente…");
+        await existing.unsubscribe().catch((e) => console.warn("[push:enable] unsubscribe error:", e));
+      }
 
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: appServerKey,
-      });
+      console.log("[push:enable] 9. pushManager.subscribe()…");
+      let sub;
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: appServerKey,
+        });
+        console.log("[push:enable] 10. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
+      } catch (subErr) {
+        const name = subErr instanceof Error ? subErr.name : typeof subErr;
+        const msg  = subErr instanceof Error ? subErr.message : String(subErr);
+        const stack = subErr instanceof Error ? subErr.stack : undefined;
+        console.error("[push:enable] subscribe FAILED:", { name, msg, stack, raw: subErr });
+        throw subErr;
+      }
 
+      console.log("[push:enable] 11. POST /api/push/subscribe…");
       const res = await fetch("/api/push/subscribe", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(sub.toJSON()),
       });
+      console.log("[push:enable] 12. subscribe API response:", res.status);
       if (res.ok) {
         setIsSubscribed(true);
       } else {
         setNotifErr("Error al guardar la suscripción. Intenta de nuevo.");
       }
     } catch (err) {
-      console.error("[enableNotifications]", err);
+      console.error("[push:enable] CATCH:", err);
       const name = err instanceof Error ? err.name : "Error";
       const msg  = err instanceof Error ? err.message : String(err);
       setNotifErr("No se pudo activar. Intenta 'Reiniciar suscripción' más abajo.");
@@ -216,10 +312,12 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     setNotifErrDetail("");
     setNotifLoading(true);
     try {
-      // 1. Unsubscribe + unregister every SW
+      console.log("[push:reset] 1. getRegistrations…");
       const regs = await navigator.serviceWorker.getRegistrations();
+      console.log("[push:reset] 2. SWs encontrados:", regs.length);
       await Promise.all(regs.map(async (reg) => {
         const sub = await reg.pushManager.getSubscription().catch(() => null);
+        console.log("[push:reset] unregister scope:", reg.scope, "sub:", !!sub);
         if (sub) {
           await fetch("/api/push/subscribe", {
             method: "DELETE",
@@ -232,33 +330,51 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       }));
       setIsSubscribed(false);
 
-      // 2. Re-register SW and subscribe fresh
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidKey) { setNotifErr("Clave VAPID no configurada."); return; }
 
+      console.log("[push:reset] 3. register /sw.js…");
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      // Wait for SW to activate
+      console.log("[push:reset] 4. reg OK, active:", reg.active?.state, "waiting:", reg.waiting?.state, "installing:", reg.installing?.state);
+
       await new Promise<void>((resolve) => {
         if (reg.active) { resolve(); return; }
         const sw = reg.installing ?? reg.waiting;
         if (!sw) { resolve(); return; }
         sw.addEventListener("statechange", function handler() {
+          console.log("[push:reset] SW state →", sw.state);
           if (sw.state === "activated") { sw.removeEventListener("statechange", handler); resolve(); }
         });
         setTimeout(resolve, 5000);
       });
+      console.log("[push:reset] 5. SW activado. active:", reg.active?.state);
 
       const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      });
+      const appServerKey = urlBase64ToUint8Array(vapidKey);
+      console.log("[push:reset] 6. pushManager.subscribe()… key length:", appServerKey.length, "firstByte:", appServerKey[0]);
 
+      let sub;
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: appServerKey,
+        });
+        console.log("[push:reset] 7. subscribe OK:", sub.endpoint.substring(0, 60) + "…");
+      } catch (subErr) {
+        const name = subErr instanceof Error ? subErr.name : typeof subErr;
+        const msg  = subErr instanceof Error ? subErr.message : String(subErr);
+        const stack = subErr instanceof Error ? subErr.stack : undefined;
+        console.error("[push:reset] subscribe FAILED:", { name, msg, stack, raw: subErr });
+        throw subErr;
+      }
+
+      console.log("[push:reset] 8. POST /api/push/subscribe…");
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
       });
+      console.log("[push:reset] 9. API response:", res.status);
       if (res.ok) {
         setIsSubscribed(true);
         setSwReady(true);
@@ -266,7 +382,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         setNotifErr("Suscripción creada pero no se pudo guardar en el servidor.");
       }
     } catch (err) {
-      console.error("[resetAndSubscribe]", err);
+      console.error("[push:reset] CATCH:", err);
       const name = err instanceof Error ? err.name : "Error";
       const msg  = err instanceof Error ? err.message : String(err);
       setNotifErr("Reset falló. Limpia los datos del sitio en ajustes del navegador.");
@@ -480,6 +596,21 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                   )}
                 </div>
               )}
+              {/* ── Diagnóstico temporal ── */}
+              <div style={{ marginTop: "0.75rem" }}>
+                <button
+                  onClick={runDiagnostic}
+                  disabled={diagLoading}
+                  style={{ fontSize: "0.7rem", opacity: 0.5, cursor: "pointer", background: "none", border: "1px solid currentColor", borderRadius: "4px", padding: "2px 8px", color: "inherit" }}
+                >
+                  {diagLoading ? "Diagnosticando…" : "Diagnóstico push"}
+                </button>
+                {diagInfo && (
+                  <pre style={{ marginTop: "0.5rem", fontSize: "0.65rem", opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-all", background: "rgba(0,0,0,0.2)", padding: "0.5rem", borderRadius: "4px" }}>
+                    {diagInfo}
+                  </pre>
+                )}
+              </div>
             </div>
           </section>
         )}
