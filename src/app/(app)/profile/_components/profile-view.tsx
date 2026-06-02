@@ -109,14 +109,19 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
 
     async function syncSwState() {
       try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        setSwReady(regs.length > 0);
-        for (const reg of regs) {
-          const sub = await reg.pushManager.getSubscription().catch(() => null);
-          if (sub) { setIsSubscribed(true); return; }
-        }
+        // Use the SW controlling this page — most reliable source of truth
+        const reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<null>((res) => setTimeout(() => res(null), 3000)),
+        ]);
+        if (!reg) { setSwReady(false); setIsSubscribed(false); return; }
+
+        setSwReady(true);
+        const sub = await reg.pushManager.getSubscription().catch(() => null);
+        setIsSubscribed(!!sub);
       } catch {
         setSwReady(false);
+        setIsSubscribed(false);
       }
     }
 
@@ -148,23 +153,25 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         return;
       }
 
-      const reg = await getSwReg();
-
-      // Reuse existing subscription if present — avoids unnecessary re-subscribe
-      let sub = await reg.pushManager.getSubscription().catch(() => null);
-
-      if (!sub) {
-        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidKey) {
-          setNotifErr("Clave VAPID no configurada.");
-          return;
-        }
-        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidKey) {
+        setNotifErr("Clave VAPID no configurada.");
+        return;
       }
+
+      const reg = await getSwReg();
+      const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+      const appServerKey = urlBase64ToUint8Array(vapidKey);
+
+      // Clear any existing subscription first — avoids "key mismatch" errors
+      // when a stale subscription with a different VAPID key is present
+      const existing = await reg.pushManager.getSubscription().catch(() => null);
+      if (existing) await existing.unsubscribe().catch(() => {});
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey,
+      });
 
       const res = await fetch("/api/push/subscribe", {
         method:  "POST",
