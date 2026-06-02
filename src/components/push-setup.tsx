@@ -20,8 +20,9 @@ async function ensureSubscribed(reg: ServiceWorkerRegistration) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub.toJSON()),
     });
-  } catch {
-    /* push is optional */
+  } catch (err) {
+    // Push is optional but log so issues are visible in DevTools
+    console.warn("[PushSetup] subscription failed:", err);
   }
 }
 

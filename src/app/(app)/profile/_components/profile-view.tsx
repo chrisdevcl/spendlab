@@ -127,10 +127,14 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     };
   }, [notifSupported]);
 
+  // Use the SW that currently controls this page — more reliable than scanning registrations
   async function getSwReg(): Promise<ServiceWorkerRegistration> {
-    const regs  = await navigator.serviceWorker.getRegistrations();
-    const found = regs.find((r) => r.active);
-    return found ?? navigator.serviceWorker.ready;
+    return Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Service worker no disponible. Recarga la página.")), 8000)
+      ),
+    ]);
   }
 
   async function enableNotifications() {
@@ -139,17 +143,29 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
     try {
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
-      if (permission !== "granted") return;
+      if (permission !== "granted") {
+        setNotifLoading(false);
+        return;
+      }
 
       const reg = await getSwReg();
-      let sub   = await reg.pushManager.getSubscription();
+
+      // Reuse existing subscription if present — avoids unnecessary re-subscribe
+      let sub = await reg.pushManager.getSubscription().catch(() => null);
+
       if (!sub) {
+        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidKey) {
+          setNotifErr("Clave VAPID no configurada.");
+          return;
+        }
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
         });
       }
+
       const res = await fetch("/api/push/subscribe", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -158,11 +174,16 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       if (res.ok) {
         setIsSubscribed(true);
       } else {
-        setNotifErr("Error al guardar suscripción");
+        setNotifErr("Error al guardar la suscripción. Intenta de nuevo.");
       }
     } catch (err) {
-      setNotifErr(err instanceof Error ? err.message : "Error al activar notificaciones");
       console.error("[enableNotifications]", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("push service") || msg.includes("Registration failed")) {
+        setNotifErr("Error del servicio push. Recarga la página e intenta de nuevo.");
+      } else {
+        setNotifErr(msg || "No se pudo activar. Intenta de nuevo.");
+      }
     } finally {
       setNotifLoading(false);
     }
