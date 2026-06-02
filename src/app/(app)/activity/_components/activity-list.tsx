@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import type { ExpenseWithDetails, GlobalBalance, PendingInvitation } from "@/types";
 import type { Settlement } from "@/types/database.types";
@@ -80,14 +80,15 @@ function groupByDate(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ActivityList({ expenses, globalBalance, userId, invitations }: Props) {
+export default function ActivityList({ expenses, settlements, globalBalance, userId, invitations }: Props) {
   const { debts } = globalBalance;
   const [notifOpen, setNotifOpen] = useState(false);
 
-  const addHref = (() => {
+  const [addHref, setAddHref] = useState("/groups");
+  useEffect(() => {
     const id = localStorage.getItem("lastGroupId");
-    return id ? `/groups/${id}/expenses/new` : "/groups";
-  })();
+    if (id) setAddHref(`/groups/${id}/expenses/new`); // eslint-disable-line react-hooks/set-state-in-effect
+  }, []);
 
   // ── Month picker ────────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
