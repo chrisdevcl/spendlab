@@ -1,5 +1,8 @@
-import BottomNav from "@/components/layout/bottom-nav";
+"use client";
+import dynamic from "next/dynamic";
 import styles from "./layout.module.css";
+
+const BottomNav = dynamic(() => import("@/components/layout/bottom-nav"), { ssr: false });
 
 export default function AppLayout({
   children,

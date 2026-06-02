@@ -2,15 +2,14 @@
 
 import { useState, useMemo, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { Profile } from "@/types/database.types";
+import type { GroupWithMembers } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
 import { createExpense } from "../../actions";
 import styles from "./new-expense-form.module.css";
 
 interface Props {
   groupId: string;
-  groupName: string;
-  members: Profile[];
+  allGroups: GroupWithMembers[];
   userId: string;
 }
 
@@ -34,14 +33,20 @@ function todayLocal(): string {
 
 export default function NewExpenseForm({
   groupId,
-  groupName,
-  members,
+  allGroups,
   userId,
 }: Props) {
   const router = useRouter();
-
-  const isSolo = members.length === 1;
   const today  = todayLocal();
+
+  // ── Group selection ────────────────────────────────────────────────────────
+  const [selectedGroupId, setSelectedGroupId] = useState(groupId);
+  const currentGroup = useMemo(
+    () => allGroups.find((g) => g.id === selectedGroupId) ?? allGroups[0],
+    [allGroups, selectedGroupId]
+  );
+  const members = useMemo(() => currentGroup?.members ?? [], [currentGroup]);
+  const isSolo  = members.length === 1;
 
   // ── Amount ─────────────────────────────────────────────────────────────────
   const [rawAmount, setRawAmount] = useState("0");
@@ -64,6 +69,7 @@ export default function NewExpenseForm({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(members.map((m) => m.id))
   );
+
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -101,7 +107,7 @@ export default function NewExpenseForm({
     setError("");
     startTransition(async () => {
       const result = await createExpense(
-        groupId,
+        selectedGroupId,
         paidBy,
         amountValue,
         description,
@@ -130,10 +136,7 @@ export default function NewExpenseForm({
             <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
-        <h1 className={styles.title}>
-          Nuevo gasto
-          {groupName && <span className={styles.titleGroup}> · {groupName}</span>}
-        </h1>
+        <h1 className={styles.title}>Nuevo gasto</h1>
       </header>
 
       <div className={styles.scrollArea}>
@@ -185,6 +188,37 @@ export default function NewExpenseForm({
             </div>
           </div>
         </div>
+
+        {/* ── Group selector (hidden when only 1 group) ───────────────── */}
+        {allGroups.length > 1 && (
+          <div className={styles.formSection}>
+            <p className={styles.sectionLabel}>Grupo</p>
+            <div className={styles.groupSelectWrap}>
+              <span className={styles.groupSelectValue}>{currentGroup?.name ?? ""}</span>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <select
+                className={styles.groupSelectOverlay}
+                value={selectedGroupId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const group = allGroups.find((g) => g.id === id);
+                  const ids = group?.members.map((m) => m.id) ?? [];
+                  setSelectedGroupId(id);
+                  setPaidBy(ids.includes(userId) ? userId : (ids[0] ?? userId));
+                  setSelectedIds(new Set(ids));
+                }}
+                disabled={isPending}
+                aria-label="Seleccionar grupo"
+              >
+                {allGroups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* ── Description ─────────────────────────────────────────────── */}
         <div className={styles.formSection}>

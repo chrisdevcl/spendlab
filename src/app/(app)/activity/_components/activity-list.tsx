@@ -15,8 +15,35 @@ interface Props {
   invitations: PendingInvitation[];
 }
 
-function firstWord(name: string): string {
-  return name?.split(" ")[0] ?? name;
+
+type ExpenseStatus = "te-deben" | "debes" | "al-dia" | null;
+
+function getExpenseStatus(
+  expense: ExpenseWithDetails,
+  settlements: Settlement[],
+  userId: string
+): ExpenseStatus {
+  const userSplit = expense.splits.find((s) => s.user_id === userId);
+  if (!userSplit || expense.splits.length <= 1) return null;
+
+  const payerId = expense.paid_by;
+  const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
+
+  if (payerId === userId) {
+    const others = expense.splits.filter((s) => s.user_id !== userId);
+    const allSettled = others.every((split) => {
+      const paid = groupSettlements
+        .filter((s) => s.paid_by === split.user_id && s.paid_to === userId)
+        .reduce((sum, s) => sum + s.amount, 0);
+      return paid >= split.amount;
+    });
+    return allSettled ? "al-dia" : "te-deben";
+  } else {
+    const paid = groupSettlements
+      .filter((s) => s.paid_by === userId && s.paid_to === payerId)
+      .reduce((sum, s) => sum + s.amount, 0);
+    return paid >= userSplit.amount ? "al-dia" : "debes";
+  }
 }
 
 function toMonthKey(d: Date) {
@@ -30,32 +57,16 @@ function monthLabel(key: string) {
   return `${month.charAt(0).toUpperCase() + month.slice(1)} ${y}`;
 }
 
-// Group a flat list of expenses by date label
+// Group a flat list of expenses by exact date (DD/MM/AAAA)
 function groupByDate(
   expenses: ExpenseWithDetails[]
 ): { label: string; expenses: ExpenseWithDetails[] }[] {
-  const today     = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-
   const ordered: string[] = [];
   const map = new Map<string, ExpenseWithDetails[]>();
 
   for (const expense of expenses) {
-    const date = expense.expense_date;
-    let label: string;
-
-    if (date === today) {
-      label = "Hoy";
-    } else if (date === yesterday) {
-      label = "Ayer";
-    } else if (date > weekStart) {
-      label = "Esta semana";
-    } else {
-      const d = new Date(`${date}T12:00:00`);
-      const raw = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
-      label = raw.charAt(0).toUpperCase() + raw.slice(1);
-    }
+    const [y, m, d] = expense.expense_date.slice(0, 10).split("-");
+    const label = `${d}/${m}/${y}`;
 
     if (!map.has(label)) {
       ordered.push(label);
@@ -71,8 +82,12 @@ function groupByDate(
 
 export default function ActivityList({ expenses, globalBalance, userId, invitations }: Props) {
   const { debts } = globalBalance;
-  const [debtExpanded, setDebtExpanded] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  const addHref = (() => {
+    const id = localStorage.getItem("lastGroupId");
+    return id ? `/groups/${id}/expenses/new` : "/groups";
+  })();
 
   // ── Month picker ────────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
@@ -103,6 +118,11 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
   const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
+  const hasMultiMemberGroups = useMemo(
+    () => expenses.some((e) => e.splits.some((s) => s.user_id !== userId)),
+    [expenses, userId]
+  );
+
   return (
     <div className={styles.page}>
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -125,15 +145,11 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
 
       <div className={styles.content}>
         {/* ── Balance card ──────────────────────────────────────────────── */}
-        <button
-          className={styles.balanceCard}
-          onClick={() => (iOwe > 0 || theyOwe > 0) && setDebtExpanded((p) => !p)}
-          aria-expanded={debtExpanded}
-        >
-          {/* Top row: month picker pill + chevron */}
+        <div className={styles.balanceCard}>
+          {/* Top row: month picker pill */}
           <div className={styles.balanceTopRow}>
             {showPicker ? (
-              <div className={styles.monthPill} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.monthPill}>
                 <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -152,14 +168,6 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
             ) : (
               <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
             )}
-            {(iOwe > 0 || theyOwe > 0) && (
-              <svg
-                className={`${styles.chevron} ${debtExpanded ? styles.chevronUp : ""}`}
-                width="16" height="16" viewBox="0 0 16 16" fill="none"
-              >
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
           </div>
 
           {/* Large amount */}
@@ -168,58 +176,31 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
             {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"}
           </p>
 
-          {/* DEBES / TE DEBEN row */}
-          {(iOwe > 0 || theyOwe > 0) && (
+          {/* DEBES / TE DEBEN row — siempre visible en grupos con múltiples integrantes */}
+          {hasMultiMemberGroups && (
             <>
               <div className={styles.balanceDivider} />
               <div className={styles.balanceRow}>
-                {iOwe > 0 && (
-                  <div className={styles.balanceStat}>
-                    <span className={styles.balanceStatLabel}>DEBES</span>
-                    <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
-                  </div>
-                )}
-                {theyOwe > 0 && (
-                  <div className={styles.balanceStat}>
-                    <span className={styles.balanceStatLabel}>TE DEBEN</span>
-                    <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
-                  </div>
-                )}
+                <div className={styles.balanceStat}>
+                  <span className={styles.balanceStatLabel}>DEBES</span>
+                  <span className={styles.balanceStatValue}>{formatCLP(iOwe)}</span>
+                </div>
+                <div className={styles.balanceStat}>
+                  <span className={styles.balanceStatLabel}>TE DEBEN</span>
+                  <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
+                </div>
               </div>
             </>
           )}
 
-          {/* Expanded debt breakdown */}
-          {debtExpanded && debts.length > 0 && (
-            <div className={styles.debtBreakdown}>
-              <div className={styles.debtDivider} />
-              {debts.map((debt, i) => {
-                const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
-                const toName   = firstWord(debt.toProfile?.display_name   ?? debt.toUserId);
-                return (
-                  <div key={i} className={styles.debtItem}>
-                    <span className={styles.debtItemNames}>{fromName} → {toName}</span>
-                    <span className={styles.debtItemAmount}>{formatCLP(debt.amount)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {iOwe > 0 && (
-            <button
-              className={styles.balanceRegisterBtn}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Registrar pago
-            </button>
-          )}
-        </button>
+        </div>
 
         {/* ── Expense list ─────────────────────────────────────────────── */}
+        <div className={styles.sectionHead}>
+          <span className={styles.eyebrow}>Lista de gastos</span>
+          <Link href={addHref} className={styles.addBtn}>+ Añadir</Link>
+        </div>
+
         {totalExpenses === 0 ? (
           <div className={styles.empty}>
             <p className={styles.emptyIcon}>🧾</p>
@@ -238,7 +219,7 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
               <p className={styles.groupLabel}>{label}</p>
               <div className={styles.expenseList}>
                 {groupExpenses.map((expense) => (
-                  <ExpenseRow key={expense.id} expense={expense} />
+                  <ExpenseRow key={expense.id} expense={expense} settlements={settlements} userId={userId} />
                 ))}
               </div>
             </section>
@@ -284,12 +265,19 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
 
 // ── Expense row ───────────────────────────────────────────────────────────────
 
-function ExpenseRow({ expense }: { expense: ExpenseWithDetails }) {
+function ExpenseRow({ expense, settlements, userId }: { expense: ExpenseWithDetails; settlements: Settlement[]; userId: string }) {
+  const status = getExpenseStatus(expense, settlements, userId);
   return (
     <Link href={`/activity/${expense.id}`} className={styles.expenseRow}>
       <div className={styles.expenseLeft}>
         <p className={styles.expenseDesc}>{expense.description}</p>
-        <span className={styles.groupBadge}>{expense.group.name}</span>
+        <div className={styles.badgeRow}>
+          <span className={styles.groupBadge}>{expense.group.name}</span>
+          <span className={styles.categoryBadge}>Sin categoría</span>
+          {status === "te-deben" && <span className={styles.statusTeDeben}>TE DEBEN</span>}
+          {status === "debes"    && <span className={styles.statusDebes}>DEBO</span>}
+          {status === "al-dia"   && <span className={styles.statusAlDia}>AL DÍA</span>}
+        </div>
       </div>
       <div className={styles.expenseRight}>
         <div className={styles.expenseAmountRow}>

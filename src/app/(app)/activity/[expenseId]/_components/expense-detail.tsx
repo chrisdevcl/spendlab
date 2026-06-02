@@ -23,12 +23,8 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string): string {
-  const d = new Date(`${dateStr.length === 10 ? dateStr : dateStr.slice(0, 10)}T12:00:00`);
-  return d.toLocaleDateString("es-CL", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const [y, m, d] = dateStr.slice(0, 10).split("-");
+  return `${d}/${m}/${y}`;
 }
 
 /** Total settlements paid from `fromId` to `toId` */
@@ -89,7 +85,6 @@ export default function ExpenseDetail({
   function handleDelete() {
     startDeleteTransition(async () => {
       await deleteExpenseAction(expense.id, expense.group_id);
-      router.refresh();
       router.replace(`/groups/${expense.group_id}`);
     });
   }
@@ -191,7 +186,10 @@ export default function ExpenseDetail({
         <div className={styles.hero}>
           <p className={styles.heroAmount}>{formatCLP(expense.amount)}</p>
           <p className={styles.heroDesc}>{expense.description}</p>
-          <span className={styles.groupBadge}>{expense.group.name}</span>
+          <div className={styles.heroBadgeRow}>
+            <span className={styles.groupBadge}>{expense.group.name}</span>
+            <span className={styles.categoryBadge}>Sin categoría</span>
+          </div>
         </div>
 
         {isPersonal ? (
@@ -245,8 +243,6 @@ export default function ExpenseDetail({
                     settled = paid >= split.amount;
                   }
 
-                  const subtitle = isPayer ? "pagó el total" : "tu parte";
-
                   return (
                     <div key={split.id} className={styles.splitRow}>
                       <div className={styles.splitAvatar}>
@@ -254,7 +250,6 @@ export default function ExpenseDetail({
                       </div>
                       <div className={styles.splitInfo}>
                         <p className={styles.splitName}>{name.split(" ")[0]}</p>
-                        <p className={styles.splitSub}>{subtitle}</p>
                       </div>
                       <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
                       <span

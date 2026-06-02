@@ -41,19 +41,50 @@ function monthLabel(key: string) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatRelativeDate(dateStr: string): string {
-  // expense_date is YYYY-MM-DD; add noon to avoid timezone shifts
-  const date = new Date(
-    dateStr.length === 10 ? `${dateStr}T12:00:00` : dateStr
-  );
-  const diffDays = Math.floor(
-    (Date.now() - date.getTime()) / 86_400_000
-  );
-  if (diffDays <= 0) return "Hoy"; // also handles future dates (timezone edge cases)
-  if (diffDays === 1) return "Ayer";
-  if (diffDays < 7) return `Hace ${diffDays} días`;
-  return date.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
+type ExpenseStatus = "te-deben" | "debes" | "al-dia" | null;
+
+function getExpenseStatus(
+  expense: ExpenseWithDetails,
+  settlements: Settlement[],
+  userId: string
+): ExpenseStatus {
+  const userSplit = expense.splits.find((s) => s.user_id === userId);
+  if (!userSplit || expense.splits.length <= 1) return null;
+
+  const payerId = expense.paid_by;
+  const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
+
+  if (payerId === userId) {
+    const others = expense.splits.filter((s) => s.user_id !== userId);
+    const allSettled = others.every((split) => {
+      const paid = groupSettlements
+        .filter((s) => s.paid_by === split.user_id && s.paid_to === userId)
+        .reduce((sum, s) => sum + s.amount, 0);
+      return paid >= split.amount;
+    });
+    return allSettled ? "al-dia" : "te-deben";
+  } else {
+    const paid = groupSettlements
+      .filter((s) => s.paid_by === userId && s.paid_to === payerId)
+      .reduce((sum, s) => sum + s.amount, 0);
+    return paid >= userSplit.amount ? "al-dia" : "debes";
+  }
 }
+
+function groupByDate(
+  expenses: ExpenseWithDetails[]
+): { label: string; expenses: ExpenseWithDetails[] }[] {
+  const ordered: string[] = [];
+  const map = new Map<string, ExpenseWithDetails[]>();
+  for (const expense of expenses) {
+    const [y, m, d] = expense.expense_date.slice(0, 10).split("-");
+    const label = `${d}/${m}/${y}`;
+    if (!map.has(label)) { ordered.push(label); map.set(label, []); }
+    map.get(label)!.push(expense);
+  }
+  return ordered.map((label) => ({ label, expenses: map.get(label)! }));
+}
+
 
 function firstWord(name: string): string {
   return name?.split(" ")[0] ?? name;
@@ -72,6 +103,10 @@ export default function GroupDetail({
   const router       = useRouter();
   const searchParams = useSearchParams();
   const multiMember  = group.members.length > 1;
+
+  useEffect(() => {
+    localStorage.setItem("lastGroupId", group.id);
+  }, [group.id]);
 
   // ── Month picker ───────────────────────────────────────────────────────────
   const currentMonthKey = toMonthKey(new Date());
@@ -114,11 +149,10 @@ export default function GroupDetail({
   // All-time outstanding balance — always uses every expense and settlement ever
   // recorded, regardless of which month is selected. The month picker only
   // filters the expense list below.
-  const { net, debts } = useMemo(() => {
+  const { debts } = useMemo(() => {
     const allSplits = expenses.flatMap((e) => e.splits);
     const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
     return {
-      net: raw.net,
       debts: raw.debts.map((d) => ({
         ...d,
         fromProfile: profileMap.get(d.fromUserId),
@@ -305,16 +339,18 @@ export default function GroupDetail({
   }
 
   // ── Balance display values ─────────────────────────────────────────────────
+  const monthTotal = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
   const [debtsExpanded, setDebtsExpanded] = useState(false);
 
-  const groupSubtitle = !multiMember
-    ? "Solo tú"
-    : group.members.length === 2
-    ? `${firstWord(group.members.find((m) => m.id !== userId)?.display_name ?? "")} y tú`
-    : `${group.members.length} integrantes`;
+  const groupSubtitle = (() => {
+    if (!multiMember) return "Solo tú";
+    const names = group.members.map((m) => firstWord(m.display_name ?? ""));
+    const joined = names.join(", ");
+    return joined.length <= 28 ? joined : `${group.members.length} integrantes`;
+  })();
 
     return (
         <div className={styles.page}>
@@ -374,10 +410,9 @@ export default function GroupDetail({
 
                 {/* ── Balance card (multi only) ─────────────────────────────── */}
                 {multiMember && (
-                  <button
+                  <div
                     className={styles.balanceCard}
                     onClick={() => debts.length > 1 && setDebtsExpanded((p) => !p)}
-                    aria-expanded={debtsExpanded}
                   >
                     {/* Top row: month pill + chevron (only when multiple debts to expand) */}
                     <div className={styles.balanceTopRow}>
@@ -411,8 +446,9 @@ export default function GroupDetail({
                       )}
                     </div>
 
+                    <span className={styles.balanceDebtLabel}>TOTAL DEL MES</span>
                     <p className={styles.balanceAmount}>
-                      {net === 0 ? "$0" : net < 0 ? formatCLP(net) : `+${formatCLP(net)}`}
+                      {formatCLP(monthTotal)}
                     </p>
 
                     {/* Divider + DEBES / TE DEBEN — always visible even at $0 */}
@@ -461,13 +497,13 @@ export default function GroupDetail({
                         Registrar pago
                       </button>
                     )}
-                  </button>
+                  </div>
                 )}
 
                 {/* ── Expenses section ─────────────────────────────────────────── */}
                 <section className={styles.section}>
                     <div className={styles.sectionHead}>
-                        <span className={styles.eyebrow}>Gastos recientes</span>
+                        <span className={styles.eyebrow}>Lista de gastos</span>
                         <Link href={`/groups/${group.id}/expenses/new`} className={styles.addBtn}>
                             + Añadir
                         </Link>
@@ -483,33 +519,41 @@ export default function GroupDetail({
                             </p>
                         </div>
                     ) : (
-                        <div className={styles.expenseList}>
-                            {filteredExpenses.map((expense) => {
-                                const payerName = firstWord(expense.payer?.display_name ?? "");
-                                const meta = multiMember
-                                    ? `${formatRelativeDate(expense.expense_date)} · pagó ${payerName}`
-                                    : formatRelativeDate(expense.expense_date);
-                                return (
-                                    <Link
-                                        key={expense.id}
-                                        href={`/activity/${expense.id}`}
-                                        className={styles.expenseRow}
-                                    >
-                                        {/* Left: description + date/payer */}
-                                        <div className={styles.expenseLeft}>
-                                            <p className={styles.expenseDesc}>{expense.description}</p>
-                                            <p className={styles.expenseMeta}>{meta}</p>
-                                        </div>
-                                        {/* Right: amount + chevron */}
-                                        <div className={styles.expenseRight}>
-                                            <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
-                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.expenseChevron}>
-                                                <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                            </svg>
-                                        </div>
-                                    </Link>
-                                );
-                            })}
+                        <div>
+                            {groupByDate(filteredExpenses).map(({ label, expenses: dateExpenses }) => (
+                                <div key={label} className={styles.dateGroup}>
+                                    <p className={styles.dateGroupLabel}>{label}</p>
+                                    <div className={styles.expenseList}>
+                                        {dateExpenses.map((expense) => (
+                                            <Link
+                                                key={expense.id}
+                                                href={`/activity/${expense.id}`}
+                                                className={styles.expenseRow}
+                                            >
+                                                <div className={styles.expenseLeft}>
+                                                    <p className={styles.expenseDesc}>{expense.description}</p>
+                                                    <div className={styles.badgeRow}>
+                                                        <span className={styles.categoryBadge}>Sin categoría</span>
+                                                        {(() => {
+                                                          const s = getExpenseStatus(expense, settlements, userId);
+                                                          if (s === "te-deben") return <span className={styles.statusTeDeben}>TE DEBEN</span>;
+                                                          if (s === "debes")    return <span className={styles.statusDebes}>DEBO</span>;
+                                                          if (s === "al-dia")   return <span className={styles.statusAlDia}>AL DÍA</span>;
+                                                          return null;
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                                <div className={styles.expenseRight}>
+                                                    <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+                                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.expenseChevron}>
+                                                        <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    </svg>
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </section>

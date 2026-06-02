@@ -37,14 +37,11 @@ function IconActivity({ active }: { active: boolean }) {
       stroke="currentColor"
       strokeWidth={weight}
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <circle cx="5" cy="6" r="2" />
-      <line x1="10" y1="6" x2="21" y2="6" />
-      <circle cx="5" cy="12" r="2" />
-      <line x1="10" y1="12" x2="21" y2="12" />
-      <circle cx="5" cy="18" r="2" />
-      <line x1="10" y1="18" x2="21" y2="18" />
+      <path d="M4 2h16v18l-2 2-2-2-2 2-2-2-2 2-2-2-2 2V2z" />
+      <path d="M9 8h6M9 12h4" />
     </svg>
   );
 }
@@ -78,14 +75,20 @@ const NAV_ITEMS = [
 export default function BottomNav() {
   const pathname = usePathname();
 
+  function getGroupsHref() {
+    const id = localStorage.getItem("lastGroupId");
+    return id ? `/groups/${id}` : "/groups";
+  }
+
   return (
     <nav className={styles.nav} aria-label="Navegación principal">
       {NAV_ITEMS.map(({ href, label, Icon }) => {
+        const resolvedHref = href === "/groups" ? getGroupsHref() : href;
         const active = pathname.startsWith(href);
         return (
           <Link
             key={href}
-            href={href}
+            href={resolvedHref}
             className={`${styles.item}${active ? ` ${styles.active}` : ""}`}
             aria-current={active ? "page" : undefined}
           >
