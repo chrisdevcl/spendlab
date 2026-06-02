@@ -238,7 +238,7 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
               <p className={styles.groupLabel}>{label}</p>
               <div className={styles.expenseList}>
                 {groupExpenses.map((expense) => (
-                  <ExpenseRow key={expense.id} expense={expense} userId={userId} />
+                  <ExpenseRow key={expense.id} expense={expense} />
                 ))}
               </div>
             </section>
@@ -284,16 +284,7 @@ export default function ActivityList({ expenses, globalBalance, userId, invitati
 
 // ── Expense row ───────────────────────────────────────────────────────────────
 
-function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: string }) {
-  const myShare = expense.splits.find((s) => s.user_id === userId)?.amount;
-
-  const rightMeta =
-    expense.paid_by === userId
-      ? "pagaste tú"
-      : myShare != null
-      ? `tu parte ${formatCLP(myShare)}`
-      : `pagó ${firstWord(expense.payer?.display_name ?? "")}`;
-
+function ExpenseRow({ expense }: { expense: ExpenseWithDetails }) {
   return (
     <Link href={`/activity/${expense.id}`} className={styles.expenseRow}>
       <div className={styles.expenseLeft}>
@@ -307,7 +298,6 @@ function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: 
             <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
-        <p className={styles.expenseRightMeta}>{rightMeta}</p>
       </div>
     </Link>
   );

@@ -485,33 +485,28 @@ export default function GroupDetail({
                     ) : (
                         <div className={styles.expenseList}>
                             {filteredExpenses.map((expense) => {
-                                const myShare = expense.splits.find(
-                                    (s) => s.user_id === userId
-                                )?.amount;
                                 const payerName = firstWord(expense.payer?.display_name ?? "");
+                                const meta = multiMember
+                                    ? `${formatRelativeDate(expense.expense_date)} · pagó ${payerName}`
+                                    : formatRelativeDate(expense.expense_date);
                                 return (
                                     <Link
                                         key={expense.id}
                                         href={`/activity/${expense.id}`}
                                         className={styles.expenseRow}
                                     >
-                                        <div className={styles.expenseInfo}>
-                                            <div className={styles.expenseRowTop}>
-                                                <p className={styles.expenseDesc}>{expense.description}</p>
-                                                <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
-                                            </div>
-                                            <div className={styles.expenseRowBottom}>
-                                                <p className={styles.expenseMeta}>
-                                                    {formatRelativeDate(expense.expense_date)}{multiMember ? ` · pagó ${payerName}` : ""}
-                                                </p>
-                                                {multiMember && myShare != null && (
-                                                    <p className={styles.expenseShare}>tu parte {formatCLP(myShare)}</p>
-                                                )}
-                                            </div>
+                                        {/* Left: description + date/payer */}
+                                        <div className={styles.expenseLeft}>
+                                            <p className={styles.expenseDesc}>{expense.description}</p>
+                                            <p className={styles.expenseMeta}>{meta}</p>
                                         </div>
-                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.expenseChevron}>
-                                            <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
+                                        {/* Right: amount + chevron */}
+                                        <div className={styles.expenseRight}>
+                                            <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.expenseChevron}>
+                                                <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                        </div>
                                     </Link>
                                 );
                             })}
