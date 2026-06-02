@@ -17,6 +17,8 @@ import { computeGlobalBalance } from "@/lib/utils/balance";
 import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
+const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
+
 interface Props {
   group: GroupWithMembers;
   expenses: ExpenseWithDetails[];
@@ -282,6 +284,63 @@ export default function GroupDetail({
   // ── Notification modal ──────────────────────────────────────────────────────
   const [notifOpen, setNotifOpen] = useState(false);
 
+  // ── Push permission banner ──────────────────────────────────────────────────
+  const [pushDismissed, setPushDismissed] = useState(false);
+  const [pushPermission, setPushPermission] =
+    useState<NotificationPermission | null>(() =>
+      typeof window !== "undefined" && "Notification" in window
+        ? Notification.permission
+        : null
+    );
+
+  async function requestPushPermission() {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setPushPermission(permission);
+  }
+
+  const showPushPrompt =
+    !pushDismissed &&
+    pushPermission === "default" &&
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    "PushManager" in window &&
+    !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+  // ── Expense notifications ───────────────────────────────────────────────────
+  const [lastSeen, setLastSeen] = useState<Date>(() => {
+    if (typeof window === "undefined") return new Date(0);
+    try {
+      const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
+      if (ts) return new Date(ts);
+      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      localStorage.setItem(LS_LAST_SEEN_KEY, d.toISOString());
+      return d;
+    } catch { return new Date(0); }
+  });
+
+  // Only show expense notifications for groups with >2 members
+  const expenseNotifs = useMemo(() =>
+    group.members.length > 2
+      ? expenses.filter(e =>
+          e.paid_by !== userId &&
+          new Date(e.created_at) > lastSeen
+        ).slice(0, 20)
+      : [],
+    [expenses, userId, group.members.length, lastSeen]
+  );
+
+  const totalBadge = invitations.length + expenseNotifs.length;
+
+  function closeNotifs() {
+    setNotifOpen(false);
+    try {
+      const now = new Date().toISOString();
+      localStorage.setItem(LS_LAST_SEEN_KEY, now);
+      setLastSeen(new Date(now));
+    } catch { /* ignore */ }
+  }
+
   // ── Create group (from selector modal) ─────────────────────────────────────
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupName, setCreateGroupName] = useState("");
@@ -370,18 +429,35 @@ export default function GroupDetail({
                     </svg>
                 </button>
 
-                <button className={styles.iconBtnBell} onClick={() => setNotifOpen(true)} aria-label="Notificaciones">
+                <button className={styles.iconBtnBell} onClick={() => setNotifOpen(true)} aria-label={`Notificaciones${totalBadge > 0 ? ` · ${totalBadge}` : ""}`}>
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                         <path d="M9 2a5.5 5.5 0 0 1 5.5 5.5c0 3 .9 4.5 1.5 5H2c.6-.5 1.5-2 1.5-5A5.5 5.5 0 0 1 9 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
                         <path d="M7 15a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                     </svg>
-                    {invitations.length > 0 && (
-                        <span className={styles.bellBadge}>{invitations.length}</span>
+                    {totalBadge > 0 && (
+                        <span className={styles.bellBadge}>{totalBadge}</span>
                     )}
                 </button>
             </header>
 
             <div className={styles.content}>
+                {/* ── Push notification permission banner ───────────────────── */}
+                {showPushPrompt && (
+                  <div className={styles.pushBanner}>
+                    <p className={styles.pushBannerText}>
+                      Activa notificaciones para saber cuando se añadan gastos al grupo
+                    </p>
+                    <div className={styles.pushBannerActions}>
+                      <button className={styles.pushBannerDismiss} onClick={() => setPushDismissed(true)}>
+                        Ahora no
+                      </button>
+                      <button className={styles.pushBannerAccept} onClick={requestPushPermission}>
+                        Activar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Month picker (single-member only, outside card) ───────── */}
                 {!multiMember && showPicker && (
                   <div className={styles.monthPicker}>
@@ -818,26 +894,57 @@ export default function GroupDetail({
             {notifOpen && (
                 <div
                     className={styles.backdrop}
-                    onClick={() => setNotifOpen(false)}
+                    onClick={closeNotifs}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Notificaciones"
                 >
                     <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
                         <p className={styles.notifTitle}>Notificaciones</p>
-                        {invitations.length > 0 ? (
+
+                        {expenseNotifs.length === 0 && invitations.length === 0 && (
+                            <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
+                        )}
+
+                        {expenseNotifs.length > 0 && (
+                            <>
+                                <p className={styles.notifSubLabel}>GASTOS NUEVOS · {expenseNotifs.length}</p>
+                                {expenseNotifs.map((e) => (
+                                    <div key={e.id} className={styles.expenseNotifCard}>
+                                        <div className={styles.expenseNotifRow}>
+                                            <p className={styles.expenseNotifDesc}>{e.description}</p>
+                                            <p className={styles.expenseNotifAmount}>{formatCLP(e.amount)}</p>
+                                        </div>
+                                        <p className={styles.expenseNotifMeta}>
+                                            {e.payer?.display_name ?? "Alguien"} añadió
+                                        </p>
+                                        <Link
+                                            href={`/activity/${e.id}`}
+                                            className={styles.expenseNotifLink}
+                                            onClick={closeNotifs}
+                                        >
+                                            Ver detalle →
+                                        </Link>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+
+                        {expenseNotifs.length > 0 && invitations.length > 0 && (
+                            <div className={styles.notifSectionGap} />
+                        )}
+
+                        {invitations.length > 0 && (
                             <>
                                 <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
                                 {invitations.map((inv) => (
                                     <NotifInvCard
                                         key={inv.id}
                                         invitation={inv}
-                                        onDone={() => { router.refresh(); setNotifOpen(false); }}
+                                        onDone={() => { router.refresh(); closeNotifs(); }}
                                     />
                                 ))}
                             </>
-                        ) : (
-                            <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
                         )}
                     </div>
                 </div>

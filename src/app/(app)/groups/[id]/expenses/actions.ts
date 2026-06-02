@@ -42,7 +42,7 @@ export async function createExpense(
 
   // Send push notifications before redirect — awaited so serverless doesn't
   // kill the process before they're dispatched (redirect() throws internally).
-  await notifyExpenseAdded({ groupId, paidBy, description: description.trim(), amount });
+  await notifyExpenseAdded({ expenseId: expense.id, groupId, paidBy, description: description.trim(), amount });
 
   revalidatePath(`/groups/${groupId}`);
   redirect(`/groups/${groupId}`);

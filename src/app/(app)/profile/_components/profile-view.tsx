@@ -321,8 +321,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
           </div>
         </section>
 
-        {/* Notificaciones — solo si hay SW registrado */}
-        {notifSupported && swReady === true && (
+        {/* Notificaciones */}
+        {notifSupported && (
           <section className={styles.section}>
             <p className={styles.sectionLabel}>Notificaciones</p>
             <div className={styles.accountList}>
@@ -336,22 +336,24 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                 <div className={styles.notifInfo}>
                   <span className={styles.rowLabel}>Notificaciones push</span>
                   <span className={styles.notifStatus}>
-                    {notifPermission === "denied" ? "Bloqueadas por el navegador"
-                      : isSubscribed ? "Activadas"
-                      : "Desactivadas"}
+                    {swReady === null        ? "Iniciando…"
+                      : notifPermission === "denied"  ? "Bloqueadas por el navegador"
+                      : isSubscribed                  ? "Activadas"
+                      :                                 "Desactivadas"}
                   </span>
                 </div>
-                {notifPermission === "denied" ? (
-                  <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
-                ) : isSubscribed ? (
-                  <button className={styles.notifBtnOff} onClick={disableNotifications} disabled={notifLoading}>
-                    {notifLoading ? "…" : "Desactivar"}
-                  </button>
-                ) : (
-                  <button className={styles.notifBtnOn} onClick={enableNotifications} disabled={notifLoading}>
-                    {notifLoading ? "…" : "Activar"}
-                  </button>
-                )}
+                {swReady === null ? null
+                  : notifPermission === "denied" ? (
+                    <span className={styles.notifDenied}>Activar en ajustes del navegador</span>
+                  ) : isSubscribed ? (
+                    <button className={styles.notifBtnOff} onClick={disableNotifications} disabled={notifLoading}>
+                      {notifLoading ? "…" : "Desactivar"}
+                    </button>
+                  ) : (
+                    <button className={styles.notifBtnOn} onClick={enableNotifications} disabled={notifLoading}>
+                      {notifLoading ? "…" : "Activar"}
+                    </button>
+                  )}
               </div>
               {notifErr && <p className={styles.notifError}>{notifErr}</p>}
             </div>

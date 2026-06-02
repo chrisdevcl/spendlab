@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import styles from "./layout.module.css";
 
 const BottomNav = dynamic(() => import("@/components/layout/bottom-nav"), { ssr: false });
+const PushSetup = dynamic(() => import("@/components/push-setup"), { ssr: false });
 
 export default function AppLayout({
   children,
@@ -11,6 +12,7 @@ export default function AppLayout({
 }) {
   return (
     <div className={styles.shell}>
+      <PushSetup />
       <main className={styles.main}>{children}</main>
       <BottomNav />
     </div>

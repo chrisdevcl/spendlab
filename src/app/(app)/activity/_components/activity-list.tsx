@@ -7,6 +7,8 @@ import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import styles from "./activity-list.module.css";
 
+const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
+
 interface Props {
   expenses: ExpenseWithDetails[];
   settlements: Settlement[];
@@ -84,6 +86,64 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
   const { debts } = globalBalance;
   const [notifOpen, setNotifOpen] = useState(false);
 
+  // ── Expense notifications (localStorage-based read tracking) ────────────
+  const [lastSeen, setLastSeen] = useState<Date>(() => {
+    if (typeof window === "undefined") return new Date(0);
+    try {
+      const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
+      if (ts) return new Date(ts);
+      // First visit: treat last 7 days as potentially unread
+      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      localStorage.setItem(LS_LAST_SEEN_KEY, d.toISOString());
+      return d;
+    } catch { return new Date(0); }
+  });
+
+  // Expenses added by others in groups with >2 members, created after lastSeen
+  const expenseNotifs = useMemo(() =>
+    expenses.filter(e =>
+      e.paid_by !== userId &&
+      e.splits.length > 2 &&
+      new Date(e.created_at) > lastSeen
+    ).slice(0, 20),
+    [expenses, userId, lastSeen]
+  );
+
+  const totalBadge = invitations.length + expenseNotifs.length;
+
+  function closeNotifs() {
+    setNotifOpen(false);
+    // Mark all as seen on close
+    try {
+      const now = new Date().toISOString();
+      localStorage.setItem(LS_LAST_SEEN_KEY, now);
+      setLastSeen(new Date(now));
+    } catch { /* ignore */ }
+  }
+
+  // ── Push permission banner ───────────────────────────────────────────────
+  const [pushDismissed, setPushDismissed] = useState(false);
+  const [pushPermission, setPushPermission] =
+    useState<NotificationPermission | null>(() =>
+      typeof window !== "undefined" && "Notification" in window
+        ? Notification.permission
+        : null
+    );
+
+  async function requestPushPermission() {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setPushPermission(permission);
+  }
+
+  const showPushPrompt =
+    !pushDismissed &&
+    pushPermission === "default" &&
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    "PushManager" in window &&
+    !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
   const [addHref, setAddHref] = useState("/groups");
   useEffect(() => {
     const id = localStorage.getItem("lastGroupId");
@@ -132,19 +192,36 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
         <button
           className={styles.bellBtn}
           onClick={() => setNotifOpen(true)}
-          aria-label={`Notificaciones${invitations.length > 0 ? ` · ${invitations.length}` : ""}`}
+          aria-label={`Notificaciones${totalBadge > 0 ? ` · ${totalBadge}` : ""}`}
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M10 2a6 6 0 0 1 6 6c0 3.5 1 5 1.5 5.5h-15C3 13 4 11.5 4 8a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
             <path d="M8 16.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
-          {invitations.length > 0 && (
-            <span className={styles.bellBadge}>{invitations.length}</span>
+          {totalBadge > 0 && (
+            <span className={styles.bellBadge}>{totalBadge}</span>
           )}
         </button>
       </header>
 
       <div className={styles.content}>
+        {/* ── Push permission banner ────────────────────────────────────── */}
+        {showPushPrompt && (
+          <div className={styles.pushBanner}>
+            <p className={styles.pushBannerText}>
+              Activa notificaciones para saber cuando se añadan gastos a tus grupos
+            </p>
+            <div className={styles.pushBannerActions}>
+              <button className={styles.pushBannerDismiss} onClick={() => setPushDismissed(true)}>
+                Ahora no
+              </button>
+              <button className={styles.pushBannerAccept} onClick={requestPushPermission}>
+                Activar
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Balance card ──────────────────────────────────────────────── */}
         <div className={styles.balanceCard}>
           {/* Top row: month picker pill */}
@@ -232,14 +309,47 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
       {notifOpen && (
         <div
           className={styles.backdrop}
-          onClick={() => setNotifOpen(false)}
+          onClick={closeNotifs}
           role="dialog"
           aria-modal="true"
           aria-label="Notificaciones"
         >
           <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
             <p className={styles.notifTitle}>Notificaciones</p>
-            {invitations.length > 0 ? (
+
+            {expenseNotifs.length === 0 && invitations.length === 0 && (
+              <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
+            )}
+
+            {expenseNotifs.length > 0 && (
+              <>
+                <p className={styles.notifSubLabel}>GASTOS NUEVOS · {expenseNotifs.length}</p>
+                {expenseNotifs.map((e) => (
+                  <div key={e.id} className={styles.expenseNotifCard}>
+                    <div className={styles.expenseNotifRow}>
+                      <p className={styles.expenseNotifDesc}>{e.description}</p>
+                      <p className={styles.expenseNotifAmount}>{formatCLP(e.amount)}</p>
+                    </div>
+                    <p className={styles.expenseNotifMeta}>
+                      {e.payer?.display_name ?? "Alguien"} añadió · {e.group.name}
+                    </p>
+                    <Link
+                      href={`/activity/${e.id}`}
+                      className={styles.expenseNotifLink}
+                      onClick={closeNotifs}
+                    >
+                      Ver detalle →
+                    </Link>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {expenseNotifs.length > 0 && invitations.length > 0 && (
+              <div className={styles.notifSectionGap} />
+            )}
+
+            {invitations.length > 0 && (
               <>
                 <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
                 {invitations.map((inv) => (
@@ -248,14 +358,12 @@ export default function ActivityList({ expenses, settlements, globalBalance, use
                     <p className={styles.invMeta}>
                       Te invitó {inv.inviter_name} · {inv.member_count === 1 ? "1 integrante" : `${inv.member_count} integrantes`}
                     </p>
-                    <Link href="/groups" className={styles.invLink} onClick={() => setNotifOpen(false)}>
+                    <Link href="/groups" className={styles.invLink} onClick={closeNotifs}>
                       Ver en Grupos →
                     </Link>
                   </div>
                 ))}
               </>
-            ) : (
-              <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
             )}
           </div>
         </div>

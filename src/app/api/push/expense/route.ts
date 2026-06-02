@@ -24,7 +24,8 @@ if (
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { groupId, paidBy, description, amount } = body as {
+  const { expenseId, groupId, paidBy, description, amount } = body as {
+    expenseId?: string;
     groupId?: string;
     paidBy?: string;
     description?: string;
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
   const payload = JSON.stringify({
     title: groupName,
     body: `${payerName} añadió "${description}" por ${formattedAmount}`,
-    url: `/groups/${groupId}`,
+    url: expenseId ? `/activity/${expenseId}` : `/groups/${groupId}`,
   });
 
   const results = await Promise.allSettled(

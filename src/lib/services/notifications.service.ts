@@ -66,11 +66,13 @@ async function sendToUsers(userIds: string[], payload: string) {
 // ─── Public helpers ───────────────────────────────────────────────────────────
 
 export async function notifyExpenseAdded({
+  expenseId,
   groupId,
   paidBy,
   description,
   amount,
 }: {
+  expenseId: string;
   groupId: string;
   paidBy: string;
   description: string;
@@ -92,9 +94,9 @@ export async function notifyExpenseAdded({
 
     if (!members || members.length === 0) return;
 
-    const payerName  = payer?.display_name ?? "Alguien";
-    const groupName  = group?.name ?? "SpendLab";
-    const formatted  = new Intl.NumberFormat("es-CL", {
+    const payerName = payer?.display_name ?? "Alguien";
+    const groupName = group?.name ?? "SpendLab";
+    const formatted = new Intl.NumberFormat("es-CL", {
       style: "currency",
       currency: "CLP",
       maximumFractionDigits: 0,
@@ -103,7 +105,7 @@ export async function notifyExpenseAdded({
     const payload = JSON.stringify({
       title: groupName,
       body: `${payerName} añadió "${description}" por ${formatted}`,
-      url: `/groups/${groupId}`,
+      url: `/activity/${expenseId}`,
     });
 
     await sendToUsers(
