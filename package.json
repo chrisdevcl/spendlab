@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "next build --webpack && node scripts/inject-sw-push.mjs",
     "start": "next start",
     "generate-icons": "node scripts/generate-icons.mjs",
     "lint": "next lint",
