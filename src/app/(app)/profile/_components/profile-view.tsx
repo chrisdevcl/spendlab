@@ -155,16 +155,38 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       lines.push(`SWs registrados: ${regs.length}`);
       for (const r of regs) {
         const sub = await r.pushManager.getSubscription().catch(() => null);
-        lines.push(`  scope=${r.scope} active=${r.active?.state ?? "—"} sub=${sub ? sub.endpoint.substring(0, 40) + "…" : "ninguna"}`);
+        lines.push(`  scope=${r.scope}`);
+        lines.push(`  active=${r.active?.state ?? "—"} waiting=${r.waiting?.state ?? "—"}`);
+        lines.push(`  sub=${sub ? sub.endpoint.substring(0, 50) + "…" : "ninguna"}`);
       }
 
-      // 2. SW controlador
+      // 2. SW controller
       const ctrl = navigator.serviceWorker.controller;
-      lines.push(`SW controller: ${ctrl ? `${ctrl.scriptURL} (${ctrl.state})` : "ninguno"}`);
+      lines.push(`SW controller: ${ctrl ? `${ctrl.scriptURL} (${ctrl.state})` : "✗ ninguno — el SW no controla esta página"}`);
 
-      // 3. VAPID key local
+      // 3. Inspect actual /sw.js content in production
+      try {
+        const swResp = await fetch("/sw.js", { cache: "no-store" });
+        const swText = await swResp.text();
+        const isWorkbox = swText.length > 8_000;
+        const hasPushListener = /addEventListener\s*\(\s*['"]push['"]/.test(swText);
+        const hasNotifClick  = /addEventListener\s*\(\s*['"]notificationclick['"]/.test(swText);
+        const hasClaim       = /clients\.claim/.test(swText);
+        const hasSkipWaiting = /skipWaiting/.test(swText);
+        lines.push(`--- /sw.js ---`);
+        lines.push(`  tamaño: ${swText.length} chars (${isWorkbox ? "Workbox generado" : "SW manual simple"})`);
+        lines.push(`  push handler: ${hasPushListener ? "✓" : "✗ FALTA — causa directa del error"}`);
+        lines.push(`  notificationclick: ${hasNotifClick ? "✓" : "✗"}`);
+        lines.push(`  clients.claim: ${hasClaim ? "✓" : "✗ FALTA — explica controller=null"}`);
+        lines.push(`  skipWaiting: ${hasSkipWaiting ? "✓" : "✗"}`);
+      } catch (e) {
+        lines.push(`/sw.js fetch error: ${e}`);
+      }
+
+      // 4. VAPID key — format + WebCrypto P-256 validation
       const vk = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      lines.push(`NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${vk ? `${vk.length} chars, inicia=${vk.substring(0,8)}…` : "NO DEFINIDA"}`);
+      lines.push(`--- VAPID key (cliente) ---`);
+      lines.push(`${vk ? `${vk.length} chars, inicia=${vk.substring(0, 8)}…` : "✗ NO DEFINIDA"}`);
 
       if (vk) {
         const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
@@ -175,38 +197,32 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         } catch (e) {
           lines.push(`  decode ERROR: ${e}`);
         }
-        // WebCrypto P-256 curve validation — deeper check than byte length
         if (bytes) {
           try {
-            await crypto.subtle.importKey(
-              "raw",
-              bytes,
-              { name: "ECDH", namedCurve: "P-256" },
-              true,
-              []
-            );
-            lines.push(`  WebCrypto P-256: ✓ punto válido en la curva`);
+            await crypto.subtle.importKey("raw", bytes, { name: "ECDH", namedCurve: "P-256" }, true, []);
+            lines.push(`  WebCrypto P-256: ✓ punto válido`);
           } catch (e) {
-            lines.push(`  WebCrypto P-256: ✗ NO ES PUNTO VÁLIDO — ${e}`);
-            lines.push(`  → Regenera las claves VAPID`);
+            lines.push(`  WebCrypto P-256: ✗ INVÁLIDO — ${e}`);
+            lines.push(`  → Regenera claves: npx web-push generate-vapid-keys`);
           }
         }
       }
 
-      // 4. Server-side VAPID check
+      // 5. Server VAPID check
       try {
         const r = await fetch("/api/push/debug");
         if (r.ok) {
           const data = await r.json() as Record<string, unknown>;
-          lines.push(`--- Servidor ---`);
-          lines.push(`VAPID_PUBLIC_KEY: ${(data.serverPublicKey as { set?: boolean; length?: number } | undefined)?.set ? `${(data.serverPublicKey as { length?: number }).length} chars` : "NO DEFINIDA"}`);
-          lines.push(`NEXT_PUBLIC (server): ${(data.clientPublicKey as { set?: boolean; length?: number } | undefined)?.set ? `${(data.clientPublicKey as { length?: number }).length} chars` : "NO DEFINIDA"}`);
-          lines.push(`Claves coinciden: ${data.keysMatch ? "✓ SÍ" : "✗ NO — PROBLEMA DETECTADO"}`);
-          const dec = data.keyDecodeInfo as { length?: number; firstByte?: number; valid?: boolean; error?: string } | undefined;
-          if (dec?.error) lines.push(`Decode error: ${dec.error}`);
-          else lines.push(`Decode server: ${dec?.length} bytes, primer byte: 0x${dec?.firstByte?.toString(16)} ${dec?.valid ? "✓" : "✗"}`);
-          lines.push(`VAPID_SUBJECT: ${data.subject ?? "NO DEFINIDO"}`);
-          lines.push(`Suscripciones en DB: ${data.subscriptionsInDb}`);
+          lines.push(`--- VAPID (servidor) ---`);
+          const spk = data.serverPublicKey as { set?: boolean; length?: number };
+          const cpk = data.clientPublicKey as { set?: boolean; length?: number };
+          lines.push(`  VAPID_PUBLIC_KEY: ${spk?.set ? `${spk.length} chars ✓` : "✗ NO DEFINIDA"}`);
+          lines.push(`  NEXT_PUBLIC: ${cpk?.set ? `${cpk.length} chars ✓` : "✗ NO DEFINIDA"}`);
+          lines.push(`  Coinciden: ${data.keysMatch ? "✓ SÍ" : "✗ NO"}`);
+          const dec = data.keyDecodeInfo as { valid?: boolean; error?: string };
+          lines.push(`  Decode servidor: ${dec?.error ? `✗ ${dec.error}` : dec?.valid ? "✓" : "✗"}`);
+          lines.push(`  Subject: ${data.subject ?? "✗ NO DEFINIDO"}`);
+          lines.push(`  Subs en DB: ${data.subscriptionsInDb}`);
         } else {
           lines.push(`Server debug: HTTP ${r.status}`);
         }
@@ -214,27 +230,53 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
         lines.push(`Server debug error: ${e}`);
       }
 
-      // 5. pushManager.permissionState + permiso
-      lines.push(`Notif.permission: ${Notification.permission}`);
+      // 6. Permissions
+      lines.push(`--- Permisos ---`);
+      lines.push(`Notification.permission: ${Notification.permission}`);
       try {
         const ps = await navigator.permissions.query({ name: "notifications" as PermissionName });
         lines.push(`Permissions API: ${ps.state}`);
-      } catch {
-        lines.push(`Permissions API: no disponible`);
-      }
-      // pushManager.permissionState tells us what Chrome thinks about push for THIS VAPID key
+      } catch { lines.push(`Permissions API: no disponible`); }
+
       if (regs.length > 0 && vk) {
         try {
           const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
-          const bytes = urlBase64ToUint8Array(vk);
           const pState = await regs[0].pushManager.permissionState({
             userVisibleOnly: true,
-            applicationServerKey: bytes,
+            applicationServerKey: urlBase64ToUint8Array(vk),
           });
           lines.push(`pushManager.permissionState: ${pState} ${pState === "granted" ? "✓" : "✗"}`);
         } catch (e) {
-          lines.push(`pushManager.permissionState ERROR: ${e}`);
+          lines.push(`pushManager.permissionState: ERROR — ${e}`);
         }
+      }
+
+      // 7. Live subscribe test — the definitive check
+      lines.push(`--- Test subscribe() ---`);
+      if (regs.length > 0 && vk && Notification.permission === "granted") {
+        const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+        const appKey = urlBase64ToUint8Array(vk);
+        const testReg = regs[0];
+        const existingSub = await testReg.pushManager.getSubscription().catch(() => null);
+        if (existingSub) {
+          lines.push(`Ya hay suscripción activa: ${existingSub.endpoint.substring(0, 50)}…`);
+        } else {
+          try {
+            const testSub = await testReg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: appKey,
+            });
+            lines.push(`✓ subscribe() OK: ${testSub.endpoint.substring(0, 60)}…`);
+            await testSub.unsubscribe().catch(() => {});
+            lines.push(`(suscripción de prueba cancelada)`);
+          } catch (subErr) {
+            const name = subErr instanceof Error ? subErr.name : typeof subErr;
+            const msg  = subErr instanceof Error ? subErr.message : String(subErr);
+            lines.push(`✗ subscribe() FALLÓ: ${name}: ${msg}`);
+          }
+        }
+      } else {
+        lines.push(`No se puede probar: ${regs.length === 0 ? "no hay SW" : !vk ? "no hay VAPID key" : "permiso no concedido"}`);
       }
 
       console.log("[push:diag]\n" + lines.join("\n"));
