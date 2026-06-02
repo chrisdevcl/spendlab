@@ -473,7 +473,31 @@
 }
 
 .notifError {
-  padding: 0.5rem 1rem 0.75rem;
+  padding: 0.5rem 1rem 0.25rem;
   font-size: 0.8125rem;
   color: var(--color-negative);
 }
+
+.notifErrDetail {
+  padding: 0 1rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-family: monospace;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.notifBtnReset {
+  margin: 0 1rem 0.75rem;
+  padding: 0.4rem 0.875rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.notifBtnReset:hover { border-color: var(--color-text-muted); color: var(--color-text); }
+.notifBtnReset:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -25,13 +25,13 @@ self.addEventListener("notificationclick", (event) => {
     clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((windowClients) => {
-        const existing = windowClients.find((c) => c.focus);
+        const existing = windowClients.find((c) => "focus" in c);
         if (existing) {
           existing.focus();
-          existing.navigate(url);
-        } else {
-          clients.openWindow(url);
+          existing.postMessage({ type: "NAVIGATE", url });
+          return;
         }
+        return clients.openWindow(url);
       })
   );
 });

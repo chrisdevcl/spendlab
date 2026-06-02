@@ -97,6 +97,7 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
   const [isSubscribed, setIsSubscribed]     = useState(false);
   const [notifLoading, setNotifLoading]     = useState(false);
   const [notifErr, setNotifErr]             = useState("");
+  const [notifErrDetail, setNotifErrDetail] = useState("");
   // null = still checking, true/false = resolved
   const [swReady, setSwReady]               = useState<boolean | null>(
     notifSupported ? null : false
@@ -163,6 +164,21 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
       const appServerKey = urlBase64ToUint8Array(vapidKey);
 
+      // Diagnostic: log key info to help catch misconfigured VAPID keys
+      console.info(
+        "[push] VAPID key — string length:", vapidKey.length,
+        "| decoded bytes:", appServerKey.length,
+        "| first byte (should be 4 for uncompressed P-256):", appServerKey[0]
+      );
+
+      if (appServerKey.length !== 65 || appServerKey[0] !== 4) {
+        setNotifErr(
+          `Clave VAPID inválida: ${appServerKey.length} bytes, primer byte: 0x${appServerKey[0]?.toString(16)}. ` +
+          "Debe ser una clave P-256 sin comprimir (65 bytes, primer byte 0x04)."
+        );
+        return;
+      }
+
       // Clear any existing subscription first — avoids "key mismatch" errors
       // when a stale subscription with a different VAPID key is present
       const existing = await reg.pushManager.getSubscription().catch(() => null);
@@ -185,12 +201,76 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       }
     } catch (err) {
       console.error("[enableNotifications]", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("push service") || msg.includes("Registration failed")) {
-        setNotifErr("Error del servicio push. Recarga la página e intenta de nuevo.");
+      const name = err instanceof Error ? err.name : "Error";
+      const msg  = err instanceof Error ? err.message : String(err);
+      setNotifErr("No se pudo activar. Intenta 'Reiniciar suscripción' más abajo.");
+      setNotifErrDetail(`${name}: ${msg}`);
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
+  // Hard reset: unregister all SWs, clear all push subs, re-register fresh
+  async function resetAndSubscribe() {
+    setNotifErr("");
+    setNotifErrDetail("");
+    setNotifLoading(true);
+    try {
+      // 1. Unsubscribe + unregister every SW
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(async (reg) => {
+        const sub = await reg.pushManager.getSubscription().catch(() => null);
+        if (sub) {
+          await fetch("/api/push/subscribe", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          }).catch(() => {});
+          await sub.unsubscribe().catch(() => {});
+        }
+        await reg.unregister().catch(() => {});
+      }));
+      setIsSubscribed(false);
+
+      // 2. Re-register SW and subscribe fresh
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidKey) { setNotifErr("Clave VAPID no configurada."); return; }
+
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      // Wait for SW to activate
+      await new Promise<void>((resolve) => {
+        if (reg.active) { resolve(); return; }
+        const sw = reg.installing ?? reg.waiting;
+        if (!sw) { resolve(); return; }
+        sw.addEventListener("statechange", function handler() {
+          if (sw.state === "activated") { sw.removeEventListener("statechange", handler); resolve(); }
+        });
+        setTimeout(resolve, 5000);
+      });
+
+      const { urlBase64ToUint8Array } = await import("@/lib/utils/push");
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      if (res.ok) {
+        setIsSubscribed(true);
+        setSwReady(true);
       } else {
-        setNotifErr(msg || "No se pudo activar. Intenta de nuevo.");
+        setNotifErr("Suscripción creada pero no se pudo guardar en el servidor.");
       }
+    } catch (err) {
+      console.error("[resetAndSubscribe]", err);
+      const name = err instanceof Error ? err.name : "Error";
+      const msg  = err instanceof Error ? err.message : String(err);
+      setNotifErr("Reset falló. Limpia los datos del sitio en ajustes del navegador.");
+      setNotifErrDetail(`${name}: ${msg}`);
     } finally {
       setNotifLoading(false);
     }
@@ -383,7 +463,23 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
                     </button>
                   )}
               </div>
-              {notifErr && <p className={styles.notifError}>{notifErr}</p>}
+              {notifErr && (
+                <div>
+                  <p className={styles.notifError}>{notifErr}</p>
+                  {notifErrDetail && (
+                    <p className={styles.notifErrDetail}>{notifErrDetail}</p>
+                  )}
+                  {notifPermission === "granted" && (
+                    <button
+                      className={styles.notifBtnReset}
+                      onClick={resetAndSubscribe}
+                      disabled={notifLoading}
+                    >
+                      {notifLoading ? "Reiniciando…" : "Reiniciar suscripción"}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         )}
