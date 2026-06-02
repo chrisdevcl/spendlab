@@ -251,7 +251,11 @@ export default function LoginPage() {
             </p>
           </div>
         ) : (
-          <div className={styles.actions}>
+          <form
+            className={styles.actions}
+            onSubmit={(e) => { e.preventDefault(); if (!anyLoading) handleLogin(); }}
+            noValidate
+          >
             {/* ── Email field ───────────────────────────────────────── */}
             <div className={styles.emailGroup}>
               <p className={styles.fieldLabel}>Tu correo</p>
@@ -259,6 +263,8 @@ export default function LoginPage() {
                 ref={emailRef}
                 className={styles.input}
                 type="email"
+                name="email"
+                id="email"
                 placeholder="hola@correo.cl"
                 value={email}
                 onChange={(e) => {
@@ -277,6 +283,8 @@ export default function LoginPage() {
                   ref={passwordRef}
                   className={styles.input}
                   type="password"
+                  name="password"
+                  id="password"
                   placeholder="Contraseña"
                   value={password}
                   onChange={(e) => {
@@ -294,9 +302,10 @@ export default function LoginPage() {
               )}
             </div>
 
-            {/* ── Passkey button — only if platform authenticator available ── */}
-            {passkeyAvailable && (
+            {/* ── Passkey button — only if platform authenticator available and not in password-auth dev mode ── */}
+            {passkeyAvailable && !PASSWORD_AUTH_ENABLED && (
               <button
+                type="button"
                 className={styles.btnPrimary}
                 onClick={handlePasskey}
                 disabled={anyLoading}
@@ -310,8 +319,8 @@ export default function LoginPage() {
 
             {/* ── Magic link / password button ──────────────────────────── */}
             <button
+              type="submit"
               className={styles.btnSecondary}
-              onClick={handleLogin}
               disabled={anyLoading}
             >
               {linkLoading
@@ -345,7 +354,7 @@ export default function LoginPage() {
                   : "Usar contraseña en su lugar"}
               </button>
             )}
-          </div>
+          </form>
         )}
       </div>
     </main>

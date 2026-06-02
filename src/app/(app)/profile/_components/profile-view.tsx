@@ -360,8 +360,8 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
           </section>
         )}
 
-        {/* Seguridad — passkeys */}
-        {passkeySupported && (
+        {/* Seguridad — passkeys (oculto en modo password local) */}
+        {passkeySupported && process.env.NEXT_PUBLIC_ENABLE_PASSWORD_AUTH !== "true" && (
           <section className={styles.section}>
             <p className={styles.sectionLabel}>Seguridad</p>
             <div className={styles.accountList}>
