@@ -17,14 +17,15 @@ if (isDev) {
   const withPWA = require("next-pwa");
   finalConfig = withPWA({
     dest: "public",
-    register: true,
+    // Generate Workbox to a separate file so our /sw.js is not overwritten.
+    // /sw.js (committed to git) is the primary SW — it handles push notifications
+    // and loads /workbox-sw.js via importScripts for caching.
+    sw: "workbox-sw.js",
+    // push-setup.tsx registers /sw.js manually; next-pwa must not register
+    // workbox-sw.js on its own (wrong file, wrong scope intent).
+    register: false,
     skipWaiting: true,
-    // Ensure the activated SW immediately controls all open clients.
-    // Without this, navigator.serviceWorker.controller stays null until
-    // the next page load, which prevents push subscriptions in Chrome.
     clientsClaim: true,
-    // worker/index.js is merged into the generated sw.js — adds push handlers
-    customWorkerDir: "worker",
     disable: false,
   })(baseConfig);
 }

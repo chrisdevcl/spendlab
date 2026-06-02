@@ -45,7 +45,8 @@ next-env.d.ts
 .vscode/
 
 # next-pwa — archivos generados en cada build, no commitear
-public/sw.js
+# public/sw.js es nuestro SW manual comprometido en git (no gitignored)
+public/workbox-sw.js
 public/workbox-*.js
 public/worker-*.js
 
