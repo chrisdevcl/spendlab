@@ -78,11 +78,77 @@ export default function LoginPage() {
     }
   }, []);
 
+  // ── Passkey Conditional UI (autofill) ─────────────────────────────────────
+  // Starts a discoverable-credential request on page load so that password
+  // managers (1Password, iCloud Keychain, etc.) can surface passkeys in the
+  // email field's autocomplete dropdown — no button press required.
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof PublicKeyCredential === "undefined") return;
+
+    let cancelled = false;
+
+    async function startConditionalAutofill() {
+      try {
+        const { browserSupportsWebAuthnAutofill, startAuthentication } =
+          await import("@simplewebauthn/browser");
+
+        const supported = await browserSupportsWebAuthnAutofill();
+        if (!supported || cancelled) return;
+
+        const res = await fetch("/api/passkey/auth/conditional");
+        if (!res.ok || cancelled) return;
+        const options = await res.json();
+
+        // useBrowserAutofill: true → mediation: "conditional"
+        // This promise only resolves when the user picks a passkey from autofill.
+        // Calling startAuthentication() again (explicit button) auto-cancels this.
+        const credential = await startAuthentication({
+          optionsJSON: options,
+          useBrowserAutofill: true,
+        });
+
+        if (!cancelled) await finishPasskeyAuth(credential);
+      } catch {
+        // AbortError is expected (user clicked explicit button or navigated away)
+      }
+    }
+
+    startConditionalAutofill();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (usePassword) {
       setTimeout(() => passwordRef.current?.focus(), 40);
     }
   }, [usePassword]);
+
+  // ── Shared: finish a WebAuthn authentication ceremony ─────────────────────
+  async function finishPasskeyAuth(credential: object) {
+    const finishRes = await fetch("/api/passkey/auth/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credential),
+    });
+    const finishData = await finishRes.json();
+    if (!finishRes.ok || finishData.error) {
+      setLoginError(finishData.error ?? "Error con passkey. Intenta con magic link.");
+      setPasskeyLoading(false);
+      return;
+    }
+    const supabase = createClient();
+    const { error: sessionErr } = await supabase.auth.verifyOtp({
+      token_hash: finishData.token,
+      type: "magiclink",
+    });
+    if (sessionErr) {
+      setLoginError("Error al crear sesión. Intenta con magic link.");
+      setPasskeyLoading(false);
+      return;
+    }
+    router.push("/groups");
+  }
 
   // ── Passkey login / signup ────────────────────────────────────────────────
   // Handles both cases with one button:
@@ -157,20 +223,11 @@ export default function LoginPage() {
           return;
         }
 
-        const finishRes = await fetch("/api/passkey/auth/finish", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(credential),
-        });
-        const finishData = await finishRes.json();
-        if (!finishRes.ok || finishData.error) {
-          setLoginError(finishData.error ?? "Error con passkey. Intenta con magic link.");
-          setPasskeyLoading(false);
-          return;
-        }
-        token = finishData.token;
+        await finishPasskeyAuth(credential);
+        return;
       }
 
+      // register path: use token from setup response (set above)
       const supabase = createClient();
       const { error: sessionErr } = await supabase.auth.verifyOtp({
         token_hash: token,
@@ -272,7 +329,7 @@ export default function LoginPage() {
                   setLoginError("");
                 }}
                 onKeyDown={handleKeyDown}
-                autoComplete="email"
+                autoComplete="username webauthn"
                 inputMode="email"
                 disabled={anyLoading}
               />
