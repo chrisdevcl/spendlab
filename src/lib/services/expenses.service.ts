@@ -64,7 +64,7 @@ export async function getGroupExpenses(
       splitsByExpense.set(s.expense_id, arr);
     });
 
-    // 4. Assemble
+    // 4. Assemble (payments not loaded here — use getExpense for detail view)
     return expenses.map((expense) => ({
       ...expense,
       group,
@@ -72,6 +72,7 @@ export async function getGroupExpenses(
       splits: (splitsByExpense.get(expense.id) ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
+        payments: [],
       })),
     }));
   } catch (err) {
@@ -113,13 +114,26 @@ export async function getExpense(
       return null;
     }
 
-    // Batch-fetch split profiles
+    // Batch-fetch split profiles + payment history
+    const splitIds     = (splits ?? []).map((s) => s.id);
     const splitUserIds = [...new Set((splits ?? []).map((s) => s.user_id))];
-    const { data: splitProfiles } = splitUserIds.length
-      ? await supabase.from("profiles").select("*").in("id", splitUserIds)
-      : { data: [] };
 
-    const profileMap = new Map((splitProfiles ?? []).map((p) => [p.id, p]));
+    const [{ data: splitProfiles }, { data: splitPayments }] = await Promise.all([
+      splitUserIds.length
+        ? supabase.from("profiles").select("*").in("id", splitUserIds)
+        : Promise.resolve({ data: [] }),
+      splitIds.length
+        ? supabase.from("split_payments").select("*").in("split_id", splitIds).order("paid_at", { ascending: true })
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const profileMap  = new Map((splitProfiles  ?? []).map((p) => [p.id, p]));
+    const paymentsMap = new Map<string, typeof splitPayments>();
+    for (const p of splitPayments ?? []) {
+      const arr = paymentsMap.get(p.split_id) ?? [];
+      arr.push(p);
+      paymentsMap.set(p.split_id, arr);
+    }
 
     return {
       ...expense,
@@ -128,6 +142,7 @@ export async function getExpense(
       splits: (splits ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
+        payments: paymentsMap.get(split.id) ?? [],
       })),
     };
   } catch (err) {
@@ -266,6 +281,7 @@ export async function getAllUserExpenses(
       splits: (splitsByExpense.get(expense.id) ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
+        payments: [],
       })),
     }));
   } catch (err) {
@@ -371,7 +387,6 @@ export async function recordSplitPayment(
   try {
     const supabase = await createClient();
 
-    // Read current values first to cap at split.amount
     const { data: split, error: rErr } = await supabase
       .from("expense_splits")
       .select("amount, paid_amount")
@@ -383,17 +398,24 @@ export async function recordSplitPayment(
       return false;
     }
 
-    const newPaid = Math.min(split.amount, split.paid_amount + payAmount);
+    const capped   = Math.min(payAmount, split.amount - split.paid_amount);
+    if (capped <= 0) return true; // already fully paid
 
-    const { error } = await supabase
-      .from("expense_splits")
-      .update({ paid_amount: newPaid })
-      .eq("id", splitId);
+    const newPaid  = split.paid_amount + capped;
 
-    if (error) {
-      console.error("[recordSplitPayment] update error:", error.message);
-      return false;
-    }
+    // Update running total and insert history record in parallel
+    const [{ error: uErr }, { error: iErr }] = await Promise.all([
+      supabase
+        .from("expense_splits")
+        .update({ paid_amount: newPaid })
+        .eq("id", splitId),
+      supabase
+        .from("split_payments")
+        .insert({ split_id: splitId, amount: capped }),
+    ]);
+
+    if (uErr) { console.error("[recordSplitPayment] update error:", uErr.message); return false; }
+    if (iErr) { console.error("[recordSplitPayment] history error:", iErr.message); return false; }
     return true;
   } catch (err) {
     console.error("[recordSplitPayment] unexpected error:", err);

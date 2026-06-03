@@ -97,10 +97,12 @@ export async function notifyExpenseAdded({
 
     const excludedIds = [...new Set([createdBy, ...(paidBy ? [paidBy] : [])])];
 
-    const [{ data: group }, { data: creator }, { data: members }] =
+    const profilesToFetch = [...new Set([createdBy, ...(paidBy && paidBy !== createdBy ? [paidBy] : [])])];
+
+    const [{ data: group }, profileResults, { data: members }] =
       await Promise.all([
         admin.from("groups").select("name").eq("id", groupId).single(),
-        admin.from("profiles").select("display_name").eq("id", createdBy).single(),
+        admin.from("profiles").select("id, display_name").in("id", profilesToFetch),
         admin
           .from("group_members")
           .select("user_id")
@@ -110,13 +112,20 @@ export async function notifyExpenseAdded({
 
     if (!members || members.length === 0) return;
 
-    const creatorName = creator?.display_name ?? "Alguien";
-    const groupName = group?.name ?? "SpendLab";
-    const formatted = clpFormatter.format(amount);
+    const profileMap = new Map((profileResults.data ?? []).map((p) => [p.id, p.display_name]));
+    const creatorName = profileMap.get(createdBy) ?? "Alguien";
+    const payerName   = paidBy ? (profileMap.get(paidBy) ?? "Alguien") : null;
+    const groupName   = group?.name ?? "SpendLab";
+    const formatted   = clpFormatter.format(amount);
 
-    const body = paidBy
-      ? `${creatorName} añadió "${description}" por ${formatted}`
-      : `${creatorName} registró "${description}" por ${formatted} — sin pagar aún`;
+    let body: string;
+    if (!paidBy) {
+      body = `${creatorName} registró "${description}" por ${formatted} — sin pagar aún`;
+    } else if (paidBy === createdBy) {
+      body = `${creatorName} añadió "${description}" por ${formatted}`;
+    } else {
+      body = `${creatorName} registró "${description}" por ${formatted} (pagado por ${payerName})`;
+    }
 
     const payload = JSON.stringify({
       title: groupName,

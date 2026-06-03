@@ -122,6 +122,16 @@ CREATE TABLE expense_splits (
   UNIQUE (expense_id, user_id)
 );
 
+-- ── split_payments ────────────────────────────────────────────────────────────
+-- Registro individual de cada abono a un split pendiente.
+-- Permite ver el historial completo de pagos parciales.
+CREATE TABLE split_payments (
+  id       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  split_id uuid        NOT NULL REFERENCES expense_splits(id) ON DELETE CASCADE,
+  amount   integer     NOT NULL CHECK (amount > 0),
+  paid_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ── settlements ───────────────────────────────────────────────────────────────
 -- Pagos de saldo entre miembros (liquidaciones).
 -- paid_by → paid_to registra quién pagó a quién.

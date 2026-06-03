@@ -257,7 +257,12 @@ export default function ExpenseDetail({
           <p className={styles.heroDesc}>{expense.description}</p>
           <div className={styles.heroBadgeRow}>
             <span className={styles.groupBadge}>{expense.group.name}</span>
-            <span className={styles.categoryBadge}>Sin categoría</span>
+            {isPersonal
+              ? <span className={styles.typeBadgePersonal}>Personal</span>
+              : isPendingExpense
+                ? <span className={styles.typeBadgePending}>Sin pagador</span>
+                : <span className={styles.typeBadgeShared}>Compartido</span>
+            }
           </div>
         </div>
 
@@ -339,7 +344,7 @@ export default function ExpenseDetail({
                       <span className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}>
                         {isPendingExpense
                           ? settled ? "pagado" : formatCLP(remaining)
-                          : settled ? "sin deuda" : "pendiente"}
+                          : isPayer ? "pagó" : settled ? "pagado" : "pendiente"}
                       </span>
                     </div>
                   );
@@ -351,6 +356,70 @@ export default function ExpenseDetail({
               <p style={{ fontSize: "0.8125rem", color: "var(--color-negative)", marginTop: "0.5rem" }}>
                 {splitPayError}
               </p>
+            )}
+
+            {/* ── Payment history ──────────────────────────────────────── */}
+            {isPendingExpense ? (
+              // Pending: show individual abono records per split
+              (() => {
+                const allPayments = expense.splits.flatMap((s) =>
+                  (s.payments ?? []).map((p) => ({
+                    ...p,
+                    profileName: s.profile?.display_name ?? s.user_id,
+                  }))
+                ).sort((a, b) => a.paid_at.localeCompare(b.paid_at));
+                if (!allPayments.length) return null;
+                return (
+                  <section className={styles.section}>
+                    <p className={styles.sectionLabel}>Historial de pagos</p>
+                    <div className={styles.paymentList}>
+                      {allPayments.map((p) => (
+                        <div key={p.id} className={styles.paymentRow}>
+                          <div className={styles.splitAvatar}>
+                            {p.profileName[0]?.toUpperCase() ?? "?"}
+                          </div>
+                          <p className={styles.paymentName}>{p.profileName.split(" ")[0]}</p>
+                          <p className={styles.paymentDate}>{formatDate(p.paid_at)}</p>
+                          <p className={styles.paymentAmount}>{formatCLP(p.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })()
+            ) : (
+              // Shared: show settlements between payer and participants
+              (() => {
+                if (!payerId) return null;
+                const relevant = settlements.filter(
+                  (s) => s.group_id === expense.group_id && s.paid_to === payerId
+                );
+                if (!relevant.length) return null;
+                return (
+                  <section className={styles.section}>
+                    <p className={styles.sectionLabel}>Historial de pagos</p>
+                    <div className={styles.paymentList}>
+                      {relevant
+                        .slice()
+                        .sort((a, b) => a.settled_at.localeCompare(b.settled_at))
+                        .map((s) => {
+                          const fromSplit = expense.splits.find((sp) => sp.user_id === s.paid_by);
+                          const name = fromSplit?.profile?.display_name ?? s.paid_by;
+                          return (
+                            <div key={s.id} className={styles.paymentRow}>
+                              <div className={styles.splitAvatar}>
+                                {name[0]?.toUpperCase() ?? "?"}
+                              </div>
+                              <p className={styles.paymentName}>{name.split(" ")[0]}</p>
+                              <p className={styles.paymentDate}>{formatDate(s.settled_at)}</p>
+                              <p className={styles.paymentAmount}>{formatCLP(s.amount)}</p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </section>
+                );
+              })()
             )}
 
             {/* Pending debt banner */}

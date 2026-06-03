@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createSettlement as createSettlementService } from "@/lib/services/expenses.service";
-import { notifySettlementReceived } from "@/lib/services/notifications.service";
+import {
+  notifySettlementReceived,
+  notifyInvitationAccepted,
+  notifyInvitationRejected,
+} from "@/lib/services/notifications.service";
 import {
   inviteMember as inviteMemberService,
   deleteGroup as deleteGroupService,
@@ -139,7 +143,7 @@ export async function acceptInvitation(
 
   const { data: inv } = await supabase
     .from("group_invitations")
-    .select("id, group_id, accepted_at, expires_at, invited_email")
+    .select("id, group_id, accepted_at, expires_at, invited_email, invited_by")
     .eq("id", invitationId).single();
 
   if (!inv) return { error: "Invitación no encontrada" };
@@ -155,6 +159,12 @@ export async function acceptInvitation(
     .from("group_invitations")
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invitationId);
+
+  notifyInvitationAccepted({
+    groupId: inv.group_id,
+    invitedBy: inv.invited_by,
+    inviteeId: user.id,
+  }).catch((err) => console.error("[acceptInvitation] notify error:", err));
 
   revalidatePath("/groups");
   return {};
@@ -175,12 +185,29 @@ export async function rejectInvitation(
   const { data: profile } = await supabase
     .from("profiles").select("email").eq("id", user.id).single();
 
+  // Fetch invited_by before deleting so we can notify
+  const { data: inv } = await supabase
+    .from("group_invitations")
+    .select("invited_by")
+    .eq("group_id", groupId)
+    .eq("invited_email", profile?.email ?? "")
+    .is("accepted_at", null)
+    .maybeSingle();
+
   await supabase
     .from("group_invitations")
     .delete()
     .eq("group_id", groupId)
     .eq("invited_email", profile?.email ?? "")
     .is("accepted_at", null);
+
+  if (inv?.invited_by) {
+    notifyInvitationRejected({
+      groupId,
+      invitedBy: inv.invited_by,
+      inviteeId: user.id,
+    }).catch((err) => console.error("[rejectInvitation] notify error:", err));
+  }
 
   revalidatePath("/groups");
   return {};

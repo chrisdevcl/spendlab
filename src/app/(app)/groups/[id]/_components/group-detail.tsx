@@ -50,15 +50,21 @@ function getExpenseStatus(
   settlements: Settlement[],
   userId: string
 ): ExpenseStatus {
-  const userSplit = expense.splits.find((s) => s.user_id === userId);
-  if (!userSplit || expense.splits.length <= 1) return null;
-
-  if (expense.paid_by === null) return "pendiente";
+  // Pending: all participants owe their share
+  if (expense.paid_by === null) {
+    return expense.splits.some((s) => s.user_id === userId) ? "pendiente" : null;
+  }
 
   const payerId = expense.paid_by;
+
+  // Personal: no participants other than the payer
+  const hasOtherParticipants = expense.splits.some((s) => s.user_id !== payerId);
+  if (!hasOtherParticipants) return null;
+
   const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
 
   if (payerId === userId) {
+    // User paid — check if everyone else has settled up
     const others = expense.splits.filter((s) => s.user_id !== userId);
     const allSettled = others.every((split) => {
       const paid = groupSettlements
@@ -67,12 +73,15 @@ function getExpenseStatus(
       return paid >= split.amount;
     });
     return allSettled ? "al-dia" : "te-deben";
-  } else {
-    const paid = groupSettlements
-      .filter((s) => s.paid_by === userId && s.paid_to === payerId)
-      .reduce((sum, s) => sum + s.amount, 0);
-    return paid >= userSplit.amount ? "al-dia" : "debes";
   }
+
+  const userSplit = expense.splits.find((s) => s.user_id === userId);
+  if (!userSplit) return null; // User not involved
+
+  const paid = groupSettlements
+    .filter((s) => s.paid_by === userId && s.paid_to === payerId)
+    .reduce((sum, s) => sum + s.amount, 0);
+  return paid >= userSplit.amount ? "al-dia" : "debes";
 }
 
 function groupByDate(

@@ -56,6 +56,13 @@ export type ExpenseSplit = {
   paid_amount: number;
 };
 
+export type SplitPayment = {
+  id: string;
+  split_id: string;
+  amount: number;
+  paid_at: string;
+};
+
 export type Settlement = {
   id: string;
   group_id: string;
@@ -136,6 +143,12 @@ export type Database = {
         Row: ExpenseSplit;
         Insert: Omit<ExpenseSplit, "id">;
         Update: Partial<Omit<ExpenseSplit, "id">>;
+        Relationships: [];
+      };
+      split_payments: {
+        Row: SplitPayment;
+        Insert: Omit<SplitPayment, "id" | "paid_at">;
+        Update: Partial<Omit<SplitPayment, "id">>;
         Relationships: [];
       };
       settlements: {

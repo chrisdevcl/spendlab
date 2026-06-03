@@ -6,13 +6,14 @@ export type {
   GroupInvitation,
   Expense,
   ExpenseSplit,
+  SplitPayment,
   Settlement,
   PasskeyCredential,
   PushSubscriptionRow,
   PendingInvitationRow,
 } from "./database.types";
 
-import type { Profile, Group, Expense, ExpenseSplit } from "./database.types";
+import type { Profile, Group, Expense, ExpenseSplit, SplitPayment } from "./database.types";
 
 export interface GroupWithMembers extends Group {
   members: Profile[];
@@ -21,6 +22,7 @@ export interface GroupWithMembers extends Group {
 
 export interface SplitWithProfile extends ExpenseSplit {
   profile: Profile;
+  payments: SplitPayment[];
 }
 
 export interface ExpenseWithDetails extends Expense {
