@@ -62,7 +62,10 @@ export default function ExpenseDetail({
   const payerId = expense.paid_by;
   const isPendingExpense = payerId === null;
   const mySplit = expense.splits.find((s) => s.user_id === userId);
-  const isPersonal = expense.splits.length <= 1;
+  // Personal = no other participant besides the payer (or no splits at all)
+  const isPersonal = isPendingExpense
+    ? expense.splits.length === 0
+    : expense.splits.length === 0 || expense.splits.every((s) => s.user_id === payerId);
 
   const userHasDebt =
     !isPersonal && !isPendingExpense && mySplit !== undefined && mySplit.user_id !== payerId
@@ -315,9 +318,8 @@ export default function ExpenseDetail({
                     settled = paid >= split.amount;
                   }
 
-                  const isMyPendingSplit = isPendingExpense && split.user_id === userId;
                   const remaining = isPendingExpense
-                    ? Math.max(0, split.amount - split.paid_amount)
+                    ? Math.max(0, split.amount - (split.paid_amount ?? 0))
                     : 0;
 
                   return (
@@ -327,29 +329,18 @@ export default function ExpenseDetail({
                       </div>
                       <div className={styles.splitInfo}>
                         <p className={styles.splitName}>{name.split(" ")[0]}</p>
-                        {isPendingExpense && split.paid_amount > 0 && !settled && (
+                        {isPendingExpense && (split.paid_amount ?? 0) > 0 && !settled && (
                           <p className={styles.splitProgress}>
-                            {formatCLP(split.paid_amount)} de {formatCLP(split.amount)}
+                            {formatCLP(split.paid_amount ?? 0)} de {formatCLP(split.amount)}
                           </p>
                         )}
                       </div>
-                      {isMyPendingSplit && !settled ? (
-                        <button
-                          className={styles.splitPayBtn}
-                          onClick={() => { setSplitPayRaw(String(remaining)); setSplitPayOpen(true); }}
-                        >
-                          Abonar
-                        </button>
-                      ) : (
-                        <>
-                          <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
-                          <span className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}>
-                            {isPendingExpense
-                              ? settled ? "pagado" : formatCLP(remaining)
-                              : settled ? "sin deuda" : "pendiente"}
-                          </span>
-                        </>
-                      )}
+                      <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
+                      <span className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}>
+                        {isPendingExpense
+                          ? settled ? "pagado" : formatCLP(remaining)
+                          : settled ? "sin deuda" : "pendiente"}
+                      </span>
                     </div>
                   );
                 })}
@@ -360,6 +351,19 @@ export default function ExpenseDetail({
               <p style={{ fontSize: "0.8125rem", color: "var(--color-negative)", marginTop: "0.5rem" }}>
                 {splitPayError}
               </p>
+            )}
+
+            {/* Pending debt banner */}
+            {isPendingExpense && mySplitForPending && myRemaining > 0 && (
+              <div className={styles.infoBanner}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M9 8v5M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <p>
+                  Debes abonar <strong>{formatCLP(myRemaining)}</strong> a este gasto.
+                </p>
+              </div>
             )}
 
             {/* Info banner */}
@@ -381,6 +385,19 @@ export default function ExpenseDetail({
       </div>
 
       {/* ── Pay footer ───────────────────────────────────────────────────── */}
+      {isPendingExpense && mySplitForPending && myRemaining > 0 && (
+        <div className={styles.payFooter}>
+          <button
+            className={styles.payBtn}
+            onClick={() => { setSplitPayRaw(String(myRemaining)); setSplitPayOpen(true); }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Abonar {formatCLP(myRemaining)}
+          </button>
+        </div>
+      )}
       {userHasDebt && (
         <div className={styles.payFooter}>
           <button

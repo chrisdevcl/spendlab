@@ -407,7 +407,7 @@ export default function GroupDetail({
       .filter((e) => e.paid_by === null)
       .flatMap((e) => e.splits)
       .filter((s) => s.user_id === userId)
-      .reduce((sum, s) => sum + Math.max(0, s.amount - s.paid_amount), 0),
+      .reduce((sum, s) => sum + Math.max(0, s.amount - (s.paid_amount ?? 0)), 0),
     [expenses, userId]
   );
 
