@@ -314,6 +314,7 @@ export async function createExpense(
         expense_id: expense.id,
         user_id: s.userId,
         amount: s.amount,
+        paid_amount: 0,
       }))
     );
 
@@ -360,6 +361,43 @@ export async function createSettlement(
   } catch (err) {
     console.error("[createSettlement] unexpected error:", err);
     return null;
+  }
+}
+
+export async function recordSplitPayment(
+  splitId: string,
+  payAmount: number
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+
+    // Read current values first to cap at split.amount
+    const { data: split, error: rErr } = await supabase
+      .from("expense_splits")
+      .select("amount, paid_amount")
+      .eq("id", splitId)
+      .single();
+
+    if (rErr || !split) {
+      console.error("[recordSplitPayment] read error:", rErr?.message);
+      return false;
+    }
+
+    const newPaid = Math.min(split.amount, split.paid_amount + payAmount);
+
+    const { error } = await supabase
+      .from("expense_splits")
+      .update({ paid_amount: newPaid })
+      .eq("id", splitId);
+
+    if (error) {
+      console.error("[recordSplitPayment] update error:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[recordSplitPayment] unexpected error:", err);
+    return false;
   }
 }
 

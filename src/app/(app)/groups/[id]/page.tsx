@@ -56,8 +56,8 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     group: MOCK_GROUP,
     payer: MOCK_ANA,
     splits: [
-      { id: "s1", expense_id: "e1", user_id: "u1", amount: 9000, profile: MOCK_PROFILE },
-      { id: "s2", expense_id: "e1", user_id: "u2", amount: 9000, profile: MOCK_ANA },
+      { id: "s1", expense_id: "e1", user_id: "u1", amount: 9000, paid_amount: 0, profile: MOCK_PROFILE },
+      { id: "s2", expense_id: "e1", user_id: "u2", amount: 9000, paid_amount: 0, profile: MOCK_ANA },
     ],
   },
   {
@@ -72,8 +72,8 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     group: MOCK_GROUP,
     payer: MOCK_PROFILE,
     splits: [
-      { id: "s3", expense_id: "e2", user_id: "u1", amount: 4000, profile: MOCK_PROFILE },
-      { id: "s4", expense_id: "e2", user_id: "u2", amount: 4000, profile: MOCK_ANA },
+      { id: "s3", expense_id: "e2", user_id: "u1", amount: 4000, paid_amount: 0, profile: MOCK_PROFILE },
+      { id: "s4", expense_id: "e2", user_id: "u2", amount: 4000, paid_amount: 0, profile: MOCK_ANA },
     ],
   },
   {
@@ -88,12 +88,13 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     group: MOCK_GROUP,
     payer: MOCK_ANA,
     splits: [
-      { id: "s5", expense_id: "e3", user_id: "u1", amount: 6000, profile: MOCK_PROFILE },
+      { id: "s5", expense_id: "e3", user_id: "u1", amount: 6000, paid_amount: 0, profile: MOCK_PROFILE },
       {
         id: "s6",
         expense_id: "e3",
         user_id: "u2",
         amount: 6000,
+        paid_amount: 0,
         profile: MOCK_ANA,
       },
     ],

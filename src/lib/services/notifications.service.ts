@@ -268,6 +268,51 @@ export async function notifyInvitationRejected({
   }
 }
 
+export async function notifySplitPayment({
+  expenseId,
+  groupId,
+  paidBy,
+  amount,
+}: {
+  expenseId: string;
+  groupId: string;
+  paidBy: string;
+  amount: number;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: group }, { data: payer }, { data: expense }, { data: members }] =
+      await Promise.all([
+        admin.from("groups").select("name").eq("id", groupId).single(),
+        admin.from("profiles").select("display_name").eq("id", paidBy).single(),
+        admin.from("expenses").select("description").eq("id", expenseId).single(),
+        admin
+          .from("group_members")
+          .select("user_id")
+          .eq("group_id", groupId)
+          .neq("user_id", paidBy),
+      ]);
+
+    if (!members || members.length === 0) return;
+
+    const payerName = payer?.display_name ?? "Alguien";
+    const groupName = group?.name ?? "SpendLab";
+    const description = expense?.description ?? "un gasto";
+    const formatted = clpFormatter.format(amount);
+
+    const payload = JSON.stringify({
+      title: groupName,
+      body: `${payerName} abonó ${formatted} a "${description}"`,
+      url: `/activity/${expenseId}`,
+    });
+
+    await sendToUsers(members.map((m) => m.user_id), payload);
+  } catch (err) {
+    console.error("[notifySplitPayment]", err);
+  }
+}
+
 export async function notifySettlementReceived({
   groupId,
   paidBy,

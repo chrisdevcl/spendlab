@@ -399,7 +399,19 @@ export default function GroupDetail({
 
   // ── Balance display values ─────────────────────────────────────────────────
   const monthTotal = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
+
+  // Split amounts the user owes for pending expenses (paid_by = null).
+  // These have no creditor so simplifyDebts won't pick them up.
+  const pendingOwe = useMemo(() =>
+    expenses
+      .filter((e) => e.paid_by === null)
+      .flatMap((e) => e.splits)
+      .filter((s) => s.user_id === userId)
+      .reduce((sum, s) => sum + Math.max(0, s.amount - s.paid_amount), 0),
+    [expenses, userId]
+  );
+
+  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0) + pendingOwe;
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
   const [debtsExpanded, setDebtsExpanded] = useState(false);

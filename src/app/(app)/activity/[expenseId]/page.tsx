@@ -27,9 +27,9 @@ const MOCK_EXPENSE: ExpenseWithDetails = {
   group: MOCK_GROUP,
   payer: U3,
   splits: [
-    { id: "s5", expense_id: "e3", user_id: "u1", amount: 15000, profile: U1 },
-    { id: "s6", expense_id: "e3", user_id: "u2", amount: 15000, profile: U2 },
-    { id: "s7", expense_id: "e3", user_id: "u3", amount: 15000, profile: U3 },
+    { id: "s5", expense_id: "e3", user_id: "u1", amount: 15000, paid_amount: 0, profile: U1 },
+    { id: "s6", expense_id: "e3", user_id: "u2", amount: 15000, paid_amount: 0, profile: U2 },
+    { id: "s7", expense_id: "e3", user_id: "u3", amount: 15000, paid_amount: 0, profile: U3 },
   ],
 };
 

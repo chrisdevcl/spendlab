@@ -53,6 +53,7 @@ export type ExpenseSplit = {
   expense_id: string;
   user_id: string;
   amount: number;
+  paid_amount: number;
 };
 
 export type Settlement = {

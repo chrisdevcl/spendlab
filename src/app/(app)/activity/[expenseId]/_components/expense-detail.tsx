@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import type { ExpenseWithDetails } from "@/types";
 import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import { createSettlementFromExpense, deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction } from "../actions";
+import { createSettlementFromExpense, deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction, recordSplitPayment as recordSplitPaymentAction } from "../actions";
 import styles from "./expense-detail.module.css";
 
 interface Props {
@@ -96,6 +96,44 @@ export default function ExpenseDetail({
   const [settleError, setSettleError] = useState("");
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ── Split payment modal (pending expenses) ────────────────────────────────
+  const mySplitForPending = isPendingExpense ? mySplit : undefined;
+  const myRemaining = mySplitForPending
+    ? Math.max(0, mySplitForPending.amount - mySplitForPending.paid_amount)
+    : 0;
+  const [splitPayOpen, setSplitPayOpen] = useState(false);
+  const [splitPayRaw, setSplitPayRaw] = useState("");
+  const [splitPayError, setSplitPayError] = useState("");
+  const [isPendingSplitPay, startSplitPayTransition] = useTransition();
+  const splitPayInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!splitPayOpen) return;
+    const t = setTimeout(() => splitPayInputRef.current?.select(), 80);
+    return () => clearTimeout(t);
+  }, [splitPayOpen]);
+
+  const splitPayAmount = parseInt(splitPayRaw.replace(/\D/g, "") || "0", 10);
+
+  function handleSplitPay() {
+    if (splitPayAmount <= 0 || !mySplitForPending) return;
+    startSplitPayTransition(async () => {
+      const result = await recordSplitPaymentAction(
+        mySplitForPending.id,
+        splitPayAmount,
+        expense.id,
+        expense.group_id
+      );
+      if (result.error) {
+        setSplitPayError(result.error);
+      } else {
+        setSplitPayOpen(false);
+        setSplitPayRaw("");
+        router.refresh();
+      }
+    });
+  }
 
   // ── Mark as paid modal ─────────────────────────────────────────────────────
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
@@ -269,13 +307,18 @@ export default function ExpenseDetail({
                   const isPayer = !isPendingExpense && split.user_id === payerId;
                   let settled: boolean;
                   if (isPendingExpense) {
-                    settled = false;
+                    settled = split.paid_amount >= split.amount;
                   } else if (isPayer) {
                     settled = true;
                   } else {
                     const paid = settledAmount(settlements, split.user_id, payerId!);
                     settled = paid >= split.amount;
                   }
+
+                  const isMyPendingSplit = isPendingExpense && split.user_id === userId;
+                  const remaining = isPendingExpense
+                    ? Math.max(0, split.amount - split.paid_amount)
+                    : 0;
 
                   return (
                     <div key={split.id} className={styles.splitRow}>
@@ -284,18 +327,40 @@ export default function ExpenseDetail({
                       </div>
                       <div className={styles.splitInfo}>
                         <p className={styles.splitName}>{name.split(" ")[0]}</p>
+                        {isPendingExpense && split.paid_amount > 0 && !settled && (
+                          <p className={styles.splitProgress}>
+                            {formatCLP(split.paid_amount)} de {formatCLP(split.amount)}
+                          </p>
+                        )}
                       </div>
-                      <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
-                      <span
-                        className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}
-                      >
-                        {settled ? "sin deuda" : "pendiente"}
-                      </span>
+                      {isMyPendingSplit && !settled ? (
+                        <button
+                          className={styles.splitPayBtn}
+                          onClick={() => { setSplitPayRaw(String(remaining)); setSplitPayOpen(true); }}
+                        >
+                          Abonar
+                        </button>
+                      ) : (
+                        <>
+                          <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
+                          <span className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}>
+                            {isPendingExpense
+                              ? settled ? "pagado" : formatCLP(remaining)
+                              : settled ? "sin deuda" : "pendiente"}
+                          </span>
+                        </>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </section>
+
+            {splitPayError && (
+              <p style={{ fontSize: "0.8125rem", color: "var(--color-negative)", marginTop: "0.5rem" }}>
+                {splitPayError}
+              </p>
+            )}
 
             {/* Info banner */}
             {userHasDebt && (
@@ -316,19 +381,6 @@ export default function ExpenseDetail({
       </div>
 
       {/* ── Pay footer ───────────────────────────────────────────────────── */}
-      {isPendingExpense && !isPersonal && (
-        <div className={styles.payFooter}>
-          <button
-            className={styles.payBtn}
-            onClick={() => setMarkPaidOpen(true)}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Marcar como pagado
-          </button>
-        </div>
-      )}
       {userHasDebt && (
         <div className={styles.payFooter}>
           <button
@@ -377,6 +429,59 @@ export default function ExpenseDetail({
                 disabled={isPendingDelete}
               >
                 {isPendingDelete ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Split payment modal ─────────────────────────────────────────── */}
+      {splitPayOpen && mySplitForPending && (
+        <div
+          className={styles.backdrop}
+          onClick={() => { if (!isPendingSplitPay) { setSplitPayOpen(false); setSplitPayRaw(""); setSplitPayError(""); } }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Registrar abono"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.modalTitle}>Registrar abono</p>
+            <p className={styles.modalSub}>
+              Pendiente: {formatCLP(myRemaining)}
+            </p>
+            <input
+              ref={splitPayInputRef}
+              className={styles.modalInput}
+              type="text"
+              inputMode="numeric"
+              placeholder="Monto a abonar"
+              value={splitPayRaw
+                ? new Intl.NumberFormat("es-CL").format(
+                    parseInt(splitPayRaw.replace(/\D/g, "") || "0", 10)
+                  )
+                : ""}
+              disabled={isPendingSplitPay}
+              onChange={(e) => {
+                setSplitPayRaw(e.target.value.replace(/\D/g, ""));
+                if (splitPayError) setSplitPayError("");
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSplitPay(); }}
+            />
+            {splitPayError && <p className={styles.modalError}>{splitPayError}</p>}
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnCancel}
+                onClick={() => { setSplitPayOpen(false); setSplitPayRaw(""); setSplitPayError(""); }}
+                disabled={isPendingSplitPay}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnConfirm}
+                onClick={handleSplitPay}
+                disabled={isPendingSplitPay || splitPayAmount <= 0}
+              >
+                {isPendingSplitPay ? "Registrando…" : "Confirmar"}
               </button>
             </div>
           </div>

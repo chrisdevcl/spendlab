@@ -114,10 +114,11 @@ CREATE TABLE expenses (
 -- Cómo se divide cada gasto entre los miembros.
 -- La suma de splits debería igualar expense.amount (validado en la app).
 CREATE TABLE expense_splits (
-  id         uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
-  expense_id uuid    NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
-  user_id    uuid    NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  amount     integer NOT NULL CHECK (amount >= 0),
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  expense_id uuid        NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
+  user_id    uuid        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  amount       integer     NOT NULL CHECK (amount >= 0),
+  paid_amount  integer     NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
   UNIQUE (expense_id, user_id)
 );
 
@@ -535,6 +536,11 @@ CREATE POLICY "splits: group members can insert"
         AND  is_group_member(e.group_id)
     )
   );
+
+CREATE POLICY "splits: owner can update"
+  ON expense_splits FOR UPDATE TO authenticated
+  USING  (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Solo el que pagó el gasto puede borrar sus splits.
 CREATE POLICY "splits: creator or payer can delete"

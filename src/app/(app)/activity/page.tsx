@@ -26,8 +26,8 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U2,
     splits: [
-      { id: "s1", expense_id: "e1", user_id: "u1", amount: 9000, profile: U1 },
-      { id: "s2", expense_id: "e1", user_id: "u2", amount: 9000, profile: U2 },
+      { id: "s1", expense_id: "e1", user_id: "u1", amount: 9000, paid_amount: 0, profile: U1 },
+      { id: "s2", expense_id: "e1", user_id: "u2", amount: 9000, paid_amount: 0, profile: U2 },
     ],
   },
   {
@@ -36,8 +36,8 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U1,
     splits: [
-      { id: "s3", expense_id: "e2", user_id: "u1", amount: 4000, profile: U1 },
-      { id: "s4", expense_id: "e2", user_id: "u2", amount: 4000, profile: U2 },
+      { id: "s3", expense_id: "e2", user_id: "u1", amount: 4000, paid_amount: 0, profile: U1 },
+      { id: "s4", expense_id: "e2", user_id: "u2", amount: 4000, paid_amount: 0, profile: U2 },
     ],
   },
   {
@@ -46,9 +46,9 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_VIAJE, payer: U3,
     splits: [
-      { id: "s5", expense_id: "e3", user_id: "u1", amount: 15000, profile: U1 },
-      { id: "s6", expense_id: "e3", user_id: "u2", amount: 15000, profile: U2 },
-      { id: "s7", expense_id: "e3", user_id: "u3", amount: 15000, profile: U3 },
+      { id: "s5", expense_id: "e3", user_id: "u1", amount: 15000, paid_amount: 0, profile: U1 },
+      { id: "s6", expense_id: "e3", user_id: "u2", amount: 15000, paid_amount: 0, profile: U2 },
+      { id: "s7", expense_id: "e3", user_id: "u3", amount: 15000, paid_amount: 0, profile: U3 },
     ],
   },
   {
@@ -57,8 +57,8 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U2,
     splits: [
-      { id: "s8", expense_id: "e4", user_id: "u1", amount: 6000, profile: U1 },
-      { id: "s9", expense_id: "e4", user_id: "u2", amount: 6000, profile: U2 },
+      { id: "s8", expense_id: "e4", user_id: "u1", amount: 6000, paid_amount: 0, profile: U1 },
+      { id: "s9", expense_id: "e4", user_id: "u2", amount: 6000, paid_amount: 0, profile: U2 },
     ],
   },
   {
@@ -67,9 +67,9 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_VIAJE, payer: U1,
     splits: [
-      { id: "s10", expense_id: "e5", user_id: "u1", amount: 11000, profile: U1 },
-      { id: "s11", expense_id: "e5", user_id: "u2", amount: 11000, profile: U2 },
-      { id: "s12", expense_id: "e5", user_id: "u3", amount: 10000, profile: U3 },
+      { id: "s10", expense_id: "e5", user_id: "u1", amount: 11000, paid_amount: 0, profile: U1 },
+      { id: "s11", expense_id: "e5", user_id: "u2", amount: 11000, paid_amount: 0, profile: U2 },
+      { id: "s12", expense_id: "e5", user_id: "u3", amount: 10000, paid_amount: 0, profile: U3 },
     ],
   },
 ];

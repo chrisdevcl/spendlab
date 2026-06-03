@@ -244,6 +244,28 @@
   color: var(--color-negative);
 }
 
+.splitProgress {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.125rem;
+}
+
+.splitPayBtn {
+  padding: 0.25rem 0.75rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.splitPayBtn:hover { opacity: 0.88; }
+.splitPayBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
 /* ── Personal expense note ──────────────────────────────────────────────── */
 .personalNote {
   font-size: 0.9375rem;
