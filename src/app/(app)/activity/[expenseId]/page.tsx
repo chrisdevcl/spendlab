@@ -19,6 +19,7 @@ const MOCK_EXPENSE: ExpenseWithDetails = {
   id: "e3",
   group_id: "g2",
   paid_by: "u3",
+  created_by: "u3",
   amount: 45000,
   description: "Hotel noche 1",
   expense_date: new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10),

@@ -434,3 +434,42 @@
 }
 .btnDanger:hover { opacity: 0.88; }
 .btnDanger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Pending badge (in metaCard) ────────────────────────────────────────── */
+.pendingBadge {
+  display: inline-flex;
+  padding: 0.125rem 0.625rem;
+  border-radius: var(--radius-full);
+  background: rgba(234, 179, 8, 0.12);
+  color: #b45309;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* ── Payer selector inside modal ─────────────────────────────────────────── */
+.payerGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.payerBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.payerBtn:hover { background: var(--color-bg); border-color: var(--color-border-strong); }
+.payerBtnActive {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: transparent;
+}
+.payerBtnActive:hover { background: var(--color-primary); opacity: 0.88; }

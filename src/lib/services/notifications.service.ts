@@ -81,6 +81,62 @@ export async function notifyExpenseAdded({
   expenseId,
   groupId,
   paidBy,
+  createdBy,
+  description,
+  amount,
+}: {
+  expenseId: string;
+  groupId: string;
+  paidBy: string | null;
+  createdBy: string;
+  description: string;
+  amount: number;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const excludedIds = [...new Set([createdBy, ...(paidBy ? [paidBy] : [])])];
+
+    const [{ data: group }, { data: creator }, { data: members }] =
+      await Promise.all([
+        admin.from("groups").select("name").eq("id", groupId).single(),
+        admin.from("profiles").select("display_name").eq("id", createdBy).single(),
+        admin
+          .from("group_members")
+          .select("user_id")
+          .eq("group_id", groupId)
+          .not("user_id", "in", `(${excludedIds.join(",")})`),
+      ]);
+
+    if (!members || members.length === 0) return;
+
+    const creatorName = creator?.display_name ?? "Alguien";
+    const groupName = group?.name ?? "SpendLab";
+    const formatted = clpFormatter.format(amount);
+
+    const body = paidBy
+      ? `${creatorName} añadió "${description}" por ${formatted}`
+      : `${creatorName} registró "${description}" por ${formatted} — sin pagar aún`;
+
+    const payload = JSON.stringify({
+      title: groupName,
+      body,
+      url: `/activity/${expenseId}`,
+    });
+
+    await sendToUsers(
+      members.map((m) => m.user_id),
+      payload
+    );
+  } catch (err) {
+    console.error("[notifyExpenseAdded]", err);
+  }
+}
+
+export async function notifyExpensePaid({
+  expenseId,
+  groupId,
+  paidBy,
   description,
   amount,
 }: {
@@ -112,7 +168,7 @@ export async function notifyExpenseAdded({
 
     const payload = JSON.stringify({
       title: groupName,
-      body: `${payerName} añadió "${description}" por ${formatted}`,
+      body: `${payerName} pagó "${description}" por ${formatted}`,
       url: `/activity/${expenseId}`,
     });
 
@@ -121,8 +177,7 @@ export async function notifyExpenseAdded({
       payload
     );
   } catch (err) {
-    // Never block the main flow — notifications are best-effort
-    console.error("[notifyExpenseAdded]", err);
+    console.error("[notifyExpensePaid]", err);
   }
 }
 
@@ -210,6 +265,41 @@ export async function notifyInvitationRejected({
     await sendToUsers([invitedBy], payload);
   } catch (err) {
     console.error("[notifyInvitationRejected]", err);
+  }
+}
+
+export async function notifySettlementReceived({
+  groupId,
+  paidBy,
+  paidTo,
+  amount,
+}: {
+  groupId: string;
+  paidBy: string;
+  paidTo: string;
+  amount: number;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: group }, { data: payer }] = await Promise.all([
+      admin.from("groups").select("name").eq("id", groupId).single(),
+      admin.from("profiles").select("display_name").eq("id", paidBy).single(),
+    ]);
+
+    const payerName = payer?.display_name ?? "Alguien";
+    const groupName = group?.name ?? "SpendLab";
+    const formatted = clpFormatter.format(amount);
+
+    const payload = JSON.stringify({
+      title: groupName,
+      body: `${payerName} te pagó ${formatted}`,
+      url: `/groups/${groupId}`,
+    });
+
+    await sendToUsers([paidTo], payload);
+  } catch (err) {
+    console.error("[notifySettlementReceived]", err);
   }
 }
 

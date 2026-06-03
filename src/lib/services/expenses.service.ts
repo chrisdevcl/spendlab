@@ -44,7 +44,7 @@ export async function getGroupExpenses(
       .select("*")
       .in("expense_id", expenseIds);
 
-    const payerIds = [...new Set(expenses.map((e) => e.paid_by))];
+    const payerIds = [...new Set(expenses.map((e) => e.paid_by).filter((id): id is string => id !== null))];
     const splitUserIds = [
       ...new Set((allSplits ?? []).map((s) => s.user_id)),
     ];
@@ -68,7 +68,7 @@ export async function getGroupExpenses(
     return expenses.map((expense) => ({
       ...expense,
       group,
-      payer: profileMap.get(expense.paid_by)!,
+      payer: expense.paid_by ? profileMap.get(expense.paid_by) ?? null : null,
       splits: (splitsByExpense.get(expense.id) ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
@@ -97,19 +97,19 @@ export async function getExpense(
       return null;
     }
 
-    // Parallel: group + payer + splits
-    const [
-      { data: group },
-      { data: payer },
-      { data: splits },
-    ] = await Promise.all([
+    // Parallel: group + payer (if set) + splits
+    const [{ data: group }, payerResult, { data: splits }] = await Promise.all([
       supabase.from("groups").select("*").eq("id", expense.group_id).single(),
-      supabase.from("profiles").select("*").eq("id", expense.paid_by).single(),
+      expense.paid_by
+        ? supabase.from("profiles").select("*").eq("id", expense.paid_by).single()
+        : Promise.resolve({ data: null }),
       supabase.from("expense_splits").select("*").eq("expense_id", expenseId),
     ]);
 
-    if (!group || !payer) {
-      console.error("[getExpense] missing group or payer");
+    const payer = payerResult.data ?? null;
+
+    if (!group) {
+      console.error("[getExpense] missing group");
       return null;
     }
 
@@ -238,7 +238,7 @@ export async function getAllUserExpenses(
       supabase.from("expense_splits").select("*").in("expense_id", expenseIds),
     ]);
 
-    const payerIds = [...new Set(expenses.map((e) => e.paid_by))];
+    const payerIds = [...new Set(expenses.map((e) => e.paid_by).filter((id): id is string => id !== null))];
     const splitUserIds = [
       ...new Set((allSplits ?? []).map((s) => s.user_id)),
     ];
@@ -262,7 +262,7 @@ export async function getAllUserExpenses(
     return expenses.map((expense) => ({
       ...expense,
       group: groupMap.get(expense.group_id)!,
-      payer: profileMap.get(expense.paid_by)!,
+      payer: expense.paid_by ? profileMap.get(expense.paid_by) ?? null : null,
       splits: (splitsByExpense.get(expense.id) ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
@@ -278,7 +278,8 @@ export async function getAllUserExpenses(
 
 export async function createExpense(
   groupId: string,
-  paidBy: string,
+  paidBy: string | null,
+  createdBy: string,
   amount: number,
   description: string,
   memberIds: string[],
@@ -294,6 +295,7 @@ export async function createExpense(
       .insert({
         group_id: groupId,
         paid_by: paidBy,
+        created_by: createdBy,
         amount,
         description,
         expense_date: expenseDate,
@@ -358,6 +360,28 @@ export async function createSettlement(
   } catch (err) {
     console.error("[createSettlement] unexpected error:", err);
     return null;
+  }
+}
+
+export async function markExpenseAsPaid(
+  expenseId: string,
+  paidBy: string
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("expenses")
+      .update({ paid_by: paidBy })
+      .eq("id", expenseId)
+      .is("paid_by", null);
+    if (error) {
+      console.error("[markExpenseAsPaid] error:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[markExpenseAsPaid] unexpected error:", err);
+    return false;
   }
 }
 

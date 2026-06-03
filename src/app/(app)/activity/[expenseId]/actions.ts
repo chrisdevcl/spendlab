@@ -5,7 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createSettlement as createSettlementService,
   deleteExpense as deleteExpenseService,
+  markExpenseAsPaid as markExpenseAsPaidService,
 } from "@/lib/services/expenses.service";
+import {
+  notifySettlementReceived,
+  notifyExpensePaid,
+} from "@/lib/services/notifications.service";
 
 export async function createSettlementFromExpense(
   groupId: string,
@@ -28,8 +33,34 @@ export async function createSettlementFromExpense(
   const settlement = await createSettlementService(groupId, paidBy, paidTo, amount);
   if (!settlement) return { error: "Error al registrar el pago. Intenta de nuevo." };
 
+  await notifySettlementReceived({ groupId, paidBy, paidTo, amount });
+
   revalidatePath("/activity");
   revalidatePath(`/activity/${paidBy}`); // optimistic; real expenseId not relevant here
+  revalidatePath(`/groups/${groupId}`);
+  return {};
+}
+
+export async function markExpenseAsPaid(
+  expenseId: string,
+  groupId: string,
+  paidBy: string,
+  description: string,
+  amount: number
+): Promise<{ error?: string }> {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return {};
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const ok = await markExpenseAsPaidService(expenseId, paidBy);
+  if (!ok) return { error: "Error al registrar el pago. Intenta de nuevo." };
+
+  await notifyExpensePaid({ expenseId, groupId, paidBy, description, amount });
+
+  revalidatePath("/activity");
+  revalidatePath(`/activity/${expenseId}`);
   revalidatePath(`/groups/${groupId}`);
   return {};
 }

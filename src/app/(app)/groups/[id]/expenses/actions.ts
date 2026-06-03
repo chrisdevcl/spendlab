@@ -8,7 +8,7 @@ import { notifyExpenseAdded } from "@/lib/services/notifications.service";
 
 export async function createExpense(
   groupId: string,
-  paidBy: string,
+  paidBy: string | null,
   amount: number,
   description: string,
   memberIds: string[],
@@ -33,6 +33,7 @@ export async function createExpense(
   const expense = await createExpenseService(
     groupId,
     paidBy,
+    user.id,
     amount,
     description.trim(),
     memberIds,
@@ -42,7 +43,7 @@ export async function createExpense(
 
   // Send push notifications before redirect — awaited so serverless doesn't
   // kill the process before they're dispatched (redirect() throws internally).
-  await notifyExpenseAdded({ expenseId: expense.id, groupId, paidBy, description: description.trim(), amount });
+  await notifyExpenseAdded({ expenseId: expense.id, groupId, paidBy, createdBy: user.id, description: description.trim(), amount });
 
   revalidatePath(`/groups/${groupId}`);
   redirect(`/groups/${groupId}`);

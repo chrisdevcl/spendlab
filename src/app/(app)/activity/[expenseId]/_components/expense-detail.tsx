@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import type { ExpenseWithDetails } from "@/types";
 import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import { createSettlementFromExpense, deleteExpense as deleteExpenseAction } from "../actions";
+import { createSettlementFromExpense, deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction } from "../actions";
 import styles from "./expense-detail.module.css";
 
 interface Props {
@@ -60,17 +60,18 @@ export default function ExpenseDetail({
   const router = useRouter();
 
   const payerId = expense.paid_by;
+  const isPendingExpense = payerId === null;
   const mySplit = expense.splits.find((s) => s.user_id === userId);
   const isPersonal = expense.splits.length <= 1;
 
   const userHasDebt =
-    !isPersonal && mySplit !== undefined && mySplit.user_id !== payerId
-      ? isDebtPending(settlements, userId, payerId, mySplit.amount)
+    !isPersonal && !isPendingExpense && mySplit !== undefined && mySplit.user_id !== payerId
+      ? isDebtPending(settlements, userId, payerId!, mySplit.amount)
       : false;
 
   const debtAmount =
     userHasDebt && mySplit
-      ? mySplit.amount - settledAmount(settlements, userId, payerId)
+      ? mySplit.amount - settledAmount(settlements, userId, payerId!)
       : 0;
 
   // ── Delete expense ─────────────────────────────────────────────────────────
@@ -95,6 +96,33 @@ export default function ExpenseDetail({
   const [settleError, setSettleError] = useState("");
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ── Mark as paid modal ─────────────────────────────────────────────────────
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [markPaidBy, setMarkPaidBy] = useState<string>(
+    mySplit?.user_id ?? expense.splits[0]?.user_id ?? ""
+  );
+  const [markPaidError, setMarkPaidError] = useState("");
+  const [isPendingMarkPaid, startMarkPaidTransition] = useTransition();
+
+  function handleMarkPaid() {
+    if (!markPaidBy) return;
+    startMarkPaidTransition(async () => {
+      const result = await markExpenseAsPaidAction(
+        expense.id,
+        expense.group_id,
+        markPaidBy,
+        expense.description,
+        expense.amount
+      );
+      if (result.error) {
+        setMarkPaidError(result.error);
+      } else {
+        setMarkPaidOpen(false);
+        router.refresh();
+      }
+    });
+  }
 
   const settleAmount = parseInt(settleRaw.replace(/\D/g, "") || "0", 10);
 
@@ -129,7 +157,7 @@ export default function ExpenseDetail({
       const result = await createSettlementFromExpense(
         expense.group_id,
         userId,
-        payerId,
+        payerId!,
         settleAmount
       );
       if (result.error) {
@@ -141,8 +169,8 @@ export default function ExpenseDetail({
     });
   }
 
-  const payerName = expense.payer?.display_name ?? "Desconocido";
-  const canDelete = expense.paid_by === userId;
+  const payerName = expense.payer?.display_name ?? (isPendingExpense ? "Sin pagar" : "Desconocido");
+  const canDelete = expense.paid_by === userId || expense.created_by === userId;
 
   return (
     <div className={styles.page}>
@@ -219,12 +247,16 @@ export default function ExpenseDetail({
               </div>
               <div className={`${styles.metaRow} ${styles.metaLast}`}>
                 <span className={styles.metaLabel}>Pagó</span>
-                <div className={styles.payerCell}>
-                  <div className={styles.avatarXs}>
-                    {payerName[0]?.toUpperCase() ?? "?"}
+                {isPendingExpense ? (
+                  <span className={styles.pendingBadge}>Sin pagar</span>
+                ) : (
+                  <div className={styles.payerCell}>
+                    <div className={styles.avatarXs}>
+                      {payerName[0]?.toUpperCase() ?? "?"}
+                    </div>
+                    <span className={styles.metaValue}>{payerName}</span>
                   </div>
-                  <span className={styles.metaValue}>{payerName}</span>
-                </div>
+                )}
               </div>
             </div>
 
@@ -234,12 +266,14 @@ export default function ExpenseDetail({
               <div className={styles.splitList}>
                 {expense.splits.map((split) => {
                   const name = split.profile?.display_name ?? split.user_id;
-                  const isPayer = split.user_id === payerId;
+                  const isPayer = !isPendingExpense && split.user_id === payerId;
                   let settled: boolean;
-                  if (isPayer) {
+                  if (isPendingExpense) {
+                    settled = false;
+                  } else if (isPayer) {
                     settled = true;
                   } else {
-                    const paid = settledAmount(settlements, split.user_id, payerId);
+                    const paid = settledAmount(settlements, split.user_id, payerId!);
                     settled = paid >= split.amount;
                   }
 
@@ -281,7 +315,20 @@ export default function ExpenseDetail({
         )}
       </div>
 
-      {/* ── Pay footer (only if user has debt in shared expense) ────────── */}
+      {/* ── Pay footer ───────────────────────────────────────────────────── */}
+      {isPendingExpense && !isPersonal && (
+        <div className={styles.payFooter}>
+          <button
+            className={styles.payBtn}
+            onClick={() => setMarkPaidOpen(true)}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Marcar como pagado
+          </button>
+        </div>
+      )}
       {userHasDebt && (
         <div className={styles.payFooter}>
           <button
@@ -330,6 +377,56 @@ export default function ExpenseDetail({
                 disabled={isPendingDelete}
               >
                 {isPendingDelete ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mark as paid modal ──────────────────────────────────────────── */}
+      {markPaidOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={() => { if (!isPendingMarkPaid) setMarkPaidOpen(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Marcar como pagado"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <p className={styles.modalTitle}>¿Quién pagó?</p>
+            <p className={styles.modalSub}>Selecciona quién adelantó el dinero.</p>
+            <div className={styles.payerGrid}>
+              {expense.splits.map((split) => {
+                const name = split.profile?.display_name ?? split.user_id;
+                return (
+                  <button
+                    key={split.user_id}
+                    className={`${styles.payerBtn} ${markPaidBy === split.user_id ? styles.payerBtnActive : ""}`}
+                    onClick={() => setMarkPaidBy(split.user_id)}
+                    disabled={isPendingMarkPaid}
+                  >
+                    {name.split(" ")[0]}
+                  </button>
+                );
+              })}
+            </div>
+            {markPaidError && (
+              <p className={styles.modalError}>{markPaidError}</p>
+            )}
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnCancel}
+                onClick={() => { setMarkPaidOpen(false); setMarkPaidError(""); }}
+                disabled={isPendingMarkPaid}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnConfirm}
+                onClick={handleMarkPaid}
+                disabled={isPendingMarkPaid || !markPaidBy}
+              >
+                {isPendingMarkPaid ? "Guardando…" : "Confirmar"}
               </button>
             </div>
           </div>

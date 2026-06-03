@@ -14,7 +14,7 @@ export function computeGroupBalance(
   let balance = 0;
 
   for (const expense of expenses) {
-    if (expense.paid_by === currentUserId) {
+    if (expense.paid_by !== null && expense.paid_by === currentUserId) {
       balance += expense.amount;
     }
   }
@@ -56,7 +56,9 @@ export function computeGlobalBalance(
   }
 
   for (const expense of expenses) {
-    netMap.set(expense.paid_by, (netMap.get(expense.paid_by) ?? 0) + expense.amount);
+    if (expense.paid_by !== null) {
+      netMap.set(expense.paid_by, (netMap.get(expense.paid_by) ?? 0) + expense.amount);
+    }
   }
 
   for (const split of splits) {

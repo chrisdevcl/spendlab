@@ -24,7 +24,7 @@ export interface SplitWithProfile extends ExpenseSplit {
 }
 
 export interface ExpenseWithDetails extends Expense {
-  payer: Profile;
+  payer: Profile | null;
   splits: SplitWithProfile[];
   group: Group;
 }

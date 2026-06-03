@@ -97,11 +97,13 @@ CREATE TABLE group_invitations (
 
 -- ── expenses ──────────────────────────────────────────────────────────────────
 -- Gastos del grupo. amount en pesos enteros (CLP no tiene centavos).
--- paid_by: quién adelantó el dinero.
+-- paid_by: quién adelantó el dinero. NULL = gasto pendiente de pago.
+-- created_by: quién registró el gasto (puede diferir de paid_by).
 CREATE TABLE expenses (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id     uuid        NOT NULL REFERENCES groups(id)   ON DELETE CASCADE,
-  paid_by      uuid        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  paid_by      uuid                    REFERENCES profiles(id) ON DELETE CASCADE,
+  created_by   uuid        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   amount       integer     NOT NULL CHECK (amount > 0),
   description  text        NOT NULL CHECK (char_length(description) BETWEEN 1 AND 120),
   expense_date date        NOT NULL DEFAULT CURRENT_DATE,
@@ -500,13 +502,18 @@ CREATE POLICY "expenses: members can create"
   WITH CHECK (is_group_member(group_id));
 
 -- Solo quien pagó puede editar o borrar el gasto.
-CREATE POLICY "expenses: payer can update"
+CREATE POLICY "expenses: update"
   ON expenses FOR UPDATE TO authenticated
-  USING (auth.uid() = paid_by);
+  USING (
+    auth.uid() = paid_by
+    OR auth.uid() = created_by
+    OR (paid_by IS NULL AND is_group_member(group_id))
+  )
+  WITH CHECK (is_group_member(group_id));
 
-CREATE POLICY "expenses: payer can delete"
+CREATE POLICY "expenses: creator or payer can delete"
   ON expenses FOR DELETE TO authenticated
-  USING (auth.uid() = paid_by);
+  USING (auth.uid() = paid_by OR auth.uid() = created_by);
 
 -- ── expense_splits ────────────────────────────────────────────────────────────
 CREATE POLICY "splits: group members can read"
@@ -530,13 +537,13 @@ CREATE POLICY "splits: group members can insert"
   );
 
 -- Solo el que pagó el gasto puede borrar sus splits.
-CREATE POLICY "splits: payer can delete"
+CREATE POLICY "splits: creator or payer can delete"
   ON expense_splits FOR DELETE TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM expenses e
       WHERE  e.id = expense_id
-        AND  e.paid_by = auth.uid()
+        AND  (e.paid_by = auth.uid() OR e.created_by = auth.uid())
     )
   );
 

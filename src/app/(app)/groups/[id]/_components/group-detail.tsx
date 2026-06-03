@@ -43,7 +43,7 @@ function monthLabel(key: string) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type ExpenseStatus = "te-deben" | "debes" | "al-dia" | null;
+type ExpenseStatus = "te-deben" | "debes" | "al-dia" | "pendiente" | null;
 
 function getExpenseStatus(
   expense: ExpenseWithDetails,
@@ -52,6 +52,8 @@ function getExpenseStatus(
 ): ExpenseStatus {
   const userSplit = expense.splits.find((s) => s.user_id === userId);
   if (!userSplit || expense.splits.length <= 1) return null;
+
+  if (expense.paid_by === null) return "pendiente";
 
   const payerId = expense.paid_by;
   const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
@@ -610,9 +612,10 @@ export default function GroupDetail({
                                                         <span className={styles.categoryBadge}>Sin categoría</span>
                                                         {(() => {
                                                           const s = getExpenseStatus(expense, settlements, userId);
-                                                          if (s === "te-deben") return <span className={styles.statusTeDeben}>TE DEBEN</span>;
-                                                          if (s === "debes")    return <span className={styles.statusDebes}>DEBO</span>;
-                                                          if (s === "al-dia")   return <span className={styles.statusAlDia}>AL DÍA</span>;
+                                                          if (s === "te-deben")  return <span className={styles.statusTeDeben}>TE DEBEN</span>;
+                                                          if (s === "debes")     return <span className={styles.statusDebes}>DEBO</span>;
+                                                          if (s === "al-dia")    return <span className={styles.statusAlDia}>AL DÍA</span>;
+                                                          if (s === "pendiente") return <span className={styles.statusPendiente}>SIN PAGAR</span>;
                                                           return null;
                                                         })()}
                                                     </div>

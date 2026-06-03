@@ -21,7 +21,7 @@ const d = (daysAgo: number) =>
 
 const MOCK_EXPENSES: ExpenseWithDetails[] = [
   {
-    id: "e1", group_id: "g1", paid_by: "u2", amount: 18000,
+    id: "e1", group_id: "g1", paid_by: "u2", created_by: "u1", amount: 18000,
     description: "Supermercado", expense_date: d(0),
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U2,
@@ -31,7 +31,7 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     ],
   },
   {
-    id: "e2", group_id: "g1", paid_by: "u1", amount: 8000,
+    id: "e2", group_id: "g1", paid_by: "u1", created_by: "u1", amount: 8000,
     description: "Gas", expense_date: d(1),
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U1,
@@ -41,7 +41,7 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     ],
   },
   {
-    id: "e3", group_id: "g2", paid_by: "u3", amount: 45000,
+    id: "e3", group_id: "g2", paid_by: "u3", created_by: "u3", amount: 45000,
     description: "Hotel noche 1", expense_date: d(3),
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_VIAJE, payer: U3,
@@ -52,7 +52,7 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     ],
   },
   {
-    id: "e4", group_id: "g1", paid_by: "u2", amount: 12000,
+    id: "e4", group_id: "g1", paid_by: "u2", created_by: "u2", amount: 12000,
     description: "Internet", expense_date: d(12),
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_CASA, payer: U2,
@@ -62,7 +62,7 @@ const MOCK_EXPENSES: ExpenseWithDetails[] = [
     ],
   },
   {
-    id: "e5", group_id: "g2", paid_by: "u1", amount: 32000,
+    id: "e5", group_id: "g2", paid_by: "u1", created_by: "u1", amount: 32000,
     description: "Cena grupal", expense_date: d(35),
     created_at: new Date().toISOString(),
     group: MOCK_GROUP_VIAJE, payer: U1,

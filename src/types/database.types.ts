@@ -40,7 +40,8 @@ export type GroupInvitation = {
 export type Expense = {
   id: string;
   group_id: string;
-  paid_by: string;
+  paid_by: string | null;
+  created_by: string;
   amount: number;
   description: string;
   expense_date: string;

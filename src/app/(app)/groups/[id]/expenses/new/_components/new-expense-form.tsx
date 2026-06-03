@@ -65,7 +65,7 @@ export default function NewExpenseForm({
   // ── Form state ─────────────────────────────────────────────────────────────
   const [description, setDescription] = useState("");
   const [date, setDate]   = useState<string>(today);
-  const [paidBy, setPaidBy] = useState(userId);
+  const [paidBy, setPaidBy] = useState<string | null>(userId);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(members.map((m) => m.id))
   );
@@ -270,6 +270,13 @@ export default function NewExpenseForm({
                     {m.display_name.split(" ")[0]}
                   </button>
                 ))}
+                <button
+                  className={`${styles.payerBtn} ${paidBy === null ? styles.payerBtnActive : ""}`}
+                  onClick={() => setPaidBy(null)}
+                  disabled={isPending}
+                >
+                  Sin pagar
+                </button>
               </div>
             </div>
 

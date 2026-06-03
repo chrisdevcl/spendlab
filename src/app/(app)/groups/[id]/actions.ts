@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createSettlement as createSettlementService } from "@/lib/services/expenses.service";
+import { notifySettlementReceived } from "@/lib/services/notifications.service";
 import {
   inviteMember as inviteMemberService,
   deleteGroup as deleteGroupService,
@@ -32,6 +33,8 @@ export async function createSettlement(
 
   const settlement = await createSettlementService(groupId, paidBy, paidTo, amount);
   if (!settlement) return { error: "Error al registrar el pago. Intenta de nuevo." };
+
+  await notifySettlementReceived({ groupId, paidBy, paidTo, amount });
 
   revalidatePath(`/groups/${groupId}`);
   return {};
