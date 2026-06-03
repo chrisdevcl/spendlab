@@ -184,8 +184,17 @@ export default function ProfileView({ profile, stats, passkeys }: Props) {
       const reg = await getSwReg();
 
       // Drop any stale subscription before resubscribing (avoids key-mismatch errors).
+      // Also remove it from the server — it may belong to a different account that
+      // previously used this device, so we use the endpoint (not user_id) to delete.
       const existing = await reg.pushManager.getSubscription().catch(() => null);
-      if (existing) await existing.unsubscribe().catch(() => {});
+      if (existing) {
+        await fetch("/api/push/subscribe", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: existing.endpoint }),
+        }).catch(() => {});
+        await existing.unsubscribe().catch(() => {});
+      }
 
       // applicationServerKey as a raw base64url string — the browser decodes it.
       const sub = await reg.pushManager.subscribe({

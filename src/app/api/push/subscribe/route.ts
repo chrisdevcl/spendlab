@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -52,10 +53,12 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "endpoint requerido" }, { status: 400 });
   }
 
-  await supabase
+  // Use admin client so RLS doesn't block cleaning up subscriptions that may
+  // belong to a different user (e.g. previous account on the same device).
+  const admin = createAdminClient();
+  await admin
     .from("push_subscriptions")
     .delete()
-    .eq("user_id", user.id)
     .eq("endpoint", endpoint);
 
   return NextResponse.json({ ok: true });

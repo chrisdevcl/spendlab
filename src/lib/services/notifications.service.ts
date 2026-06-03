@@ -155,6 +155,64 @@ export async function notifyGroupInvitation({
   }
 }
 
+export async function notifyInvitationAccepted({
+  groupId,
+  invitedBy,
+  inviteeId,
+}: {
+  groupId: string;
+  invitedBy: string;
+  inviteeId: string;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: group }, { data: invitee }] = await Promise.all([
+      admin.from("groups").select("name").eq("id", groupId).single(),
+      admin.from("profiles").select("display_name").eq("id", inviteeId).single(),
+    ]);
+
+    const payload = JSON.stringify({
+      title: group?.name ?? "SpendLab",
+      body: `${invitee?.display_name ?? "Alguien"} aceptó tu invitación`,
+      url: `/groups/${groupId}`,
+    });
+
+    await sendToUsers([invitedBy], payload);
+  } catch (err) {
+    console.error("[notifyInvitationAccepted]", err);
+  }
+}
+
+export async function notifyInvitationRejected({
+  groupId,
+  invitedBy,
+  inviteeId,
+}: {
+  groupId: string;
+  invitedBy: string;
+  inviteeId: string;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: group }, { data: invitee }] = await Promise.all([
+      admin.from("groups").select("name").eq("id", groupId).single(),
+      admin.from("profiles").select("display_name").eq("id", inviteeId).single(),
+    ]);
+
+    const payload = JSON.stringify({
+      title: group?.name ?? "SpendLab",
+      body: `${invitee?.display_name ?? "Alguien"} rechazó tu invitación`,
+      url: `/groups/${groupId}`,
+    });
+
+    await sendToUsers([invitedBy], payload);
+  } catch (err) {
+    console.error("[notifyInvitationRejected]", err);
+  }
+}
+
 /**
  * Sends a sample "expense added" notification to the user themselves, so they
  * can preview exactly how a real expense notification looks. Uses the same

@@ -6,6 +6,10 @@ import {
   createGroup as createGroupService,
   inviteMember as inviteMemberService,
 } from "@/lib/services/groups.service";
+import {
+  notifyInvitationAccepted,
+  notifyInvitationRejected,
+} from "@/lib/services/notifications.service";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -52,7 +56,7 @@ export async function acceptInvitation(
 
   const { data: inv } = await supabase
     .from("group_invitations")
-    .select("id, group_id, accepted_at, expires_at, invited_email")
+    .select("id, group_id, accepted_at, expires_at, invited_email, invited_by")
     .eq("id", invitationId)
     .single();
 
@@ -73,6 +77,12 @@ export async function acceptInvitation(
     .from("group_invitations")
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invitationId);
+
+  notifyInvitationAccepted({
+    groupId: inv.group_id,
+    invitedBy: inv.invited_by,
+    inviteeId: user.id,
+  }).catch((err) => console.error("[acceptInvitation] notify error:", err));
 
   revalidatePath("/groups");
   return {};
@@ -96,6 +106,15 @@ export async function rejectInvitation(
     .eq("id", user.id)
     .single();
 
+  // Fetch before deleting to capture invited_by for the notification
+  const { data: inv } = await supabase
+    .from("group_invitations")
+    .select("invited_by")
+    .eq("group_id", groupId)
+    .eq("invited_email", profile?.email ?? "")
+    .is("accepted_at", null)
+    .maybeSingle();
+
   // Delete all pending invitations for this group+email (covers duplicates)
   await supabase
     .from("group_invitations")
@@ -103,6 +122,14 @@ export async function rejectInvitation(
     .eq("group_id", groupId)
     .eq("invited_email", profile?.email ?? "")
     .is("accepted_at", null);
+
+  if (inv?.invited_by) {
+    notifyInvitationRejected({
+      groupId,
+      invitedBy: inv.invited_by,
+      inviteeId: user.id,
+    }).catch((err) => console.error("[rejectInvitation] notify error:", err));
+  }
 
   revalidatePath("/groups");
   return {};

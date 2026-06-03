@@ -26,8 +26,16 @@ function formatDate(iso: string): string {
 
 export default function PasskeysView({ passkeys: initial }: Props) {
   const router = useRouter();
-  const [passkeys, setPasskeys] = useState<PasskeyItem[]>(initial);
   const [errMsg, setErrMsg] = useState("");
+
+  // Optimistic local mutations — derived list stays in sync with server data
+  // automatically when router.refresh() delivers new props from the server.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [renames, setRenames] = useState<Record<string, string | null>>({});
+
+  const passkeys = initial
+    .filter((p) => !deletedIds.has(p.id))
+    .map((p) => (p.id in renames ? { ...p, nickname: renames[p.id] } : p));
 
   // ── Add passkey ─────────────────────────────────────────────────────────
   const [adding, startAddTransition] = useTransition();
@@ -95,7 +103,7 @@ export default function PasskeysView({ passkeys: initial }: Props) {
       setTimeout(() => setErrMsg(""), 4000);
       return;
     }
-    setPasskeys((prev) => prev.filter((p) => p.id !== id));
+    setDeletedIds((prev) => new Set([...prev, id]));
   }
 
   // ── Rename passkey ──────────────────────────────────────────────────────
@@ -132,9 +140,7 @@ export default function PasskeysView({ passkeys: initial }: Props) {
         return;
       }
       const trimmed = renameValue.trim() || null;
-      setPasskeys((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, nickname: trimmed } : p))
-      );
+      setRenames((prev) => ({ ...prev, [id]: trimmed }));
       setRenamingId(null);
     });
   }
