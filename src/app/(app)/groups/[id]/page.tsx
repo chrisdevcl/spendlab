@@ -1,14 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getGroup, getMyGroups } from "@/lib/services/groups.service";
-import {
-  getGroupExpenses,
-  getGroupSettlements,
-} from "@/lib/services/expenses.service";
+import { getGroupExpenses } from "@/lib/services/expenses.service";
 import { computeGroupBalance } from "@/lib/utils/balance";
 import GroupDetail from "./_components/group-detail";
-import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation } from "@/types";
-import type { Profile, Settlement, Expense, ExpenseSplit } from "@/types/database.types";
+import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation, AcceptedInvitation } from "@/types";
+import type { Profile, Expense, ExpenseSplit } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -116,7 +113,6 @@ export default async function GroupDetailPage({
       <GroupDetail
         group={MOCK_GROUP}
         expenses={MOCK_EXPENSES}
-        settlements={[]}
         userId="u1"
         profile={MOCK_PROFILE}
         allGroups={[MOCK_GROUP]}
@@ -132,28 +128,31 @@ export default async function GroupDetailPage({
   if (!user) redirect("/login");
 
   // Parallel fetch: current group + all user groups + invitations + expense data
-  const [group, allGroupsRaw, expenses, settlements, { data: profile }, { data: invitationsRaw }] =
+  // eslint-disable-next-line react-hooks/purity
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [group, allGroupsRaw, expenses, { data: profile }, { data: invitationsRaw }, { data: acceptedRaw }] =
     await Promise.all([
       getGroup(id),
       getMyGroups(user.id),
       getGroupExpenses(id),
-      getGroupSettlements(id),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       supabase.rpc("get_pending_invitations"),
+      supabase
+        .from("group_invitations")
+        .select("id, group_id, invited_email, accepted_at")
+        .eq("group_id", id)
+        .eq("invited_by", user.id)
+        .not("accepted_at", "is", null)
+        .gte("accepted_at", since),
     ]);
 
   if (!group) redirect("/groups");
 
-  // Compute balances for all groups
+  // Compute balances for all groups using paid_amount (no settlements needed)
   const groupIds = (allGroupsRaw ?? []).map((g) => g.id);
-  const [{ data: allExpenses }, { data: allSettlements }] = await Promise.all([
-    groupIds.length
-      ? supabase.from("expenses").select("*").in("group_id", groupIds)
-      : Promise.resolve({ data: [] as Expense[] }),
-    groupIds.length
-      ? supabase.from("settlements").select("*").in("group_id", groupIds)
-      : Promise.resolve({ data: [] as Settlement[] }),
-  ]);
+  const { data: allExpenses } = groupIds.length
+    ? await supabase.from("expenses").select("*").in("group_id", groupIds)
+    : { data: [] as Expense[] };
 
   const expenseIds = (allExpenses ?? []).map((e) => e.id);
   const { data: allSplits } = expenseIds.length
@@ -163,21 +162,32 @@ export default async function GroupDetailPage({
   const allGroups: GroupWithMembers[] = (allGroupsRaw ?? []).map((g) => {
     const gExpenses = (allExpenses ?? []).filter((e): e is Expense => e.group_id === g.id);
     const gSplits   = (allSplits   ?? []).filter((s): s is ExpenseSplit => gExpenses.some((e) => e.id === s.expense_id));
-    const gSettle   = (allSettlements ?? []).filter((s): s is Settlement => s.group_id === g.id);
-    return { ...g, balance: computeGroupBalance(gExpenses, gSplits, gSettle, user.id) };
+    return { ...g, balance: computeGroupBalance(gExpenses, gSplits, user.id) };
   });
 
   const invitations = (invitationsRaw ?? []) as PendingInvitation[];
+
+  // Build accepted invitations: look up display_name from group members (sync)
+  const acceptedInvitations: AcceptedInvitation[] = (acceptedRaw ?? []).map((inv) => {
+    const member = group?.members.find((m) => m.email === inv.invited_email);
+    return {
+      id: inv.id,
+      group_id: inv.group_id,
+      group_name: group?.name ?? "",
+      invitee_name: member?.display_name ?? inv.invited_email ?? "",
+      accepted_at: inv.accepted_at as string,
+    };
+  });
 
   return (
     <GroupDetail
       group={group}
       expenses={expenses ?? []}
-      settlements={(settlements ?? []) as Settlement[]}
       userId={user.id}
       profile={profile}
       allGroups={allGroups}
       invitations={invitations}
+      acceptedInvitations={acceptedInvitations}
     />
   );
 }

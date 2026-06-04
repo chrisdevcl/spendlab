@@ -9,14 +9,12 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { ExpenseWithDetails } from "@/types";
-import type { Settlement } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
-import { createSettlementFromExpense, deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction, recordSplitPayment as recordSplitPaymentAction } from "../actions";
+import { deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction, recordSplitPayment as recordSplitPaymentAction } from "../actions";
 import styles from "./expense-detail.module.css";
 
 interface Props {
   expense: ExpenseWithDetails;
-  settlements: Settlement[];
   userId: string;
 }
 
@@ -27,34 +25,10 @@ function formatDate(dateStr: string): string {
   return `${d}/${m}/${y}`;
 }
 
-/** Total settlements paid from `fromId` to `toId` */
-function settledAmount(
-  settlements: Settlement[],
-  fromId: string,
-  toId: string
-): number {
-  return settlements
-    .filter((s) => s.paid_by === fromId && s.paid_to === toId)
-    .reduce((sum, s) => sum + s.amount, 0);
-}
-
-/** Whether `userId` still owes `payerId` for `splitAmount` after settlements */
-function isDebtPending(
-  settlements: Settlement[],
-  userId: string,
-  payerId: string,
-  splitAmount: number
-): boolean {
-  if (userId === payerId) return false;
-  const paid = settledAmount(settlements, userId, payerId);
-  return paid < splitAmount;
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ExpenseDetail({
   expense,
-  settlements,
   userId,
 }: Props) {
   const router = useRouter();
@@ -62,20 +36,19 @@ export default function ExpenseDetail({
   const payerId = expense.paid_by;
   const isPendingExpense = payerId === null;
   const mySplit = expense.splits.find((s) => s.user_id === userId);
-  // Personal = no other participant besides the payer (or no splits at all)
   const isPersonal = isPendingExpense
     ? expense.splits.length === 0
     : expense.splits.length === 0 || expense.splits.every((s) => s.user_id === payerId);
 
+  // User has debt when they have a non-payer split with remaining balance
   const userHasDebt =
-    !isPersonal && !isPendingExpense && mySplit !== undefined && mySplit.user_id !== payerId
-      ? isDebtPending(settlements, userId, payerId!, mySplit.amount)
-      : false;
+    !isPersonal && mySplit !== undefined &&
+    (isPendingExpense || mySplit.user_id !== payerId) &&
+    mySplit.paid_amount < mySplit.amount;
 
-  const debtAmount =
-    userHasDebt && mySplit
-      ? mySplit.amount - settledAmount(settlements, userId, payerId!)
-      : 0;
+  const debtAmount = userHasDebt && mySplit
+    ? Math.max(0, mySplit.amount - mySplit.paid_amount)
+    : 0;
 
   // ── Delete expense ─────────────────────────────────────────────────────────
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -93,46 +66,50 @@ export default function ExpenseDetail({
     });
   }
 
-  // ── Settlement modal ────────────────────────────────────────────────────────
-  const [settleOpen, setSettleOpen] = useState(false);
-  const [settleRaw, setSettleRaw] = useState("");
-  const [settleError, setSettleError] = useState("");
-  const [isPending, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // ── Split payment modal (pending expenses) ────────────────────────────────
-  const mySplitForPending = isPendingExpense ? mySplit : undefined;
-  const myRemaining = mySplitForPending
-    ? Math.max(0, mySplitForPending.amount - mySplitForPending.paid_amount)
-    : 0;
-  const [splitPayOpen, setSplitPayOpen] = useState(false);
-  const [splitPayRaw, setSplitPayRaw] = useState("");
-  const [splitPayError, setSplitPayError] = useState("");
-  const [isPendingSplitPay, startSplitPayTransition] = useTransition();
-  const splitPayInputRef = useRef<HTMLInputElement>(null);
+  // ── Payment modal (unified for pending + shared expenses) ─────────────────
+  const [payOpen, setPayOpen] = useState(false);
+  const [payRaw, setPayRaw] = useState("");
+  const [payError, setPayError] = useState("");
+  const [isPendingPay, startPayTransition] = useTransition();
+  const payInputRef = useRef<HTMLInputElement>(null);
+  const payAmount = parseInt(payRaw.replace(/\D/g, "") || "0", 10);
 
   useEffect(() => {
-    if (!splitPayOpen) return;
-    const t = setTimeout(() => splitPayInputRef.current?.select(), 80);
+    if (!payOpen) return;
+    const t = setTimeout(() => payInputRef.current?.select(), 80);
     return () => clearTimeout(t);
-  }, [splitPayOpen]);
+  }, [payOpen]);
 
-  const splitPayAmount = parseInt(splitPayRaw.replace(/\D/g, "") || "0", 10);
+  const closePay = useCallback(() => {
+    if (isPendingPay) return;
+    setPayOpen(false);
+    setPayRaw("");
+    setPayError("");
+  }, [isPendingPay]);
 
-  function handleSplitPay() {
-    if (splitPayAmount <= 0 || !mySplitForPending) return;
-    startSplitPayTransition(async () => {
+  useEffect(() => {
+    if (!payOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closePay();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [payOpen, closePay]);
+
+  function handlePay() {
+    if (payAmount <= 0 || !mySplit) return;
+    startPayTransition(async () => {
       const result = await recordSplitPaymentAction(
-        mySplitForPending.id,
-        splitPayAmount,
+        mySplit.id,
+        payAmount,
         expense.id,
         expense.group_id
       );
       if (result.error) {
-        setSplitPayError(result.error);
+        setPayError(result.error);
       } else {
-        setSplitPayOpen(false);
-        setSplitPayRaw("");
+        setPayOpen(false);
+        setPayRaw("");
         router.refresh();
       }
     });
@@ -165,52 +142,6 @@ export default function ExpenseDetail({
     });
   }
 
-  const settleAmount = parseInt(settleRaw.replace(/\D/g, "") || "0", 10);
-
-  useEffect(() => {
-    if (!settleOpen) return;
-    const t = setTimeout(() => inputRef.current?.select(), 80);
-    return () => clearTimeout(t);
-  }, [settleOpen]);
-
-  const closeSettle = useCallback(() => {
-    if (isPending) return;
-    setSettleOpen(false);
-    setSettleRaw("");
-    setSettleError("");
-  }, [isPending]);
-
-  useEffect(() => {
-    if (!settleOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeSettle();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [settleOpen, closeSettle]);
-
-  function handleSettle() {
-    if (settleAmount <= 0) {
-      setSettleError("Ingresa un monto válido");
-      return;
-    }
-    startTransition(async () => {
-      const result = await createSettlementFromExpense(
-        expense.group_id,
-        userId,
-        payerId!,
-        settleAmount
-      );
-      if (result.error) {
-        setSettleError(result.error);
-      } else {
-        setSettleOpen(false);
-        router.refresh();
-      }
-    });
-  }
-
-  const payerName = expense.payer?.display_name ?? (isPendingExpense ? "Sin pagar" : "Desconocido");
   const canDelete = expense.paid_by === userId || expense.created_by === userId;
 
   return (
@@ -257,12 +188,9 @@ export default function ExpenseDetail({
           <p className={styles.heroDesc}>{expense.description}</p>
           <div className={styles.heroBadgeRow}>
             <span className={styles.groupBadge}>{expense.group.name}</span>
-            {isPersonal
-              ? <span className={styles.typeBadgePersonal}>Personal</span>
-              : isPendingExpense
-                ? <span className={styles.typeBadgePending}>Sin pagador</span>
-                : <span className={styles.typeBadgeShared}>Compartido</span>
-            }
+            {!isPersonal && !isPendingExpense && (
+              <span className={styles.typeBadgeShared}>Compartido</span>
+            )}
           </div>
         </div>
 
@@ -285,24 +213,11 @@ export default function ExpenseDetail({
           <>
             {/* Metadata card */}
             <div className={styles.metaCard}>
-              <div className={styles.metaRow}>
+              <div className={`${styles.metaRow} ${styles.metaLast}`}>
                 <span className={styles.metaLabel}>Fecha</span>
                 <span className={styles.metaValue}>
                   {formatDate(expense.expense_date)}
                 </span>
-              </div>
-              <div className={`${styles.metaRow} ${styles.metaLast}`}>
-                <span className={styles.metaLabel}>Pagó</span>
-                {isPendingExpense ? (
-                  <span className={styles.pendingBadge}>Sin pagar</span>
-                ) : (
-                  <div className={styles.payerCell}>
-                    <div className={styles.avatarXs}>
-                      {payerName[0]?.toUpperCase() ?? "?"}
-                    </div>
-                    <span className={styles.metaValue}>{payerName}</span>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -313,19 +228,8 @@ export default function ExpenseDetail({
                 {expense.splits.map((split) => {
                   const name = split.profile?.display_name ?? split.user_id;
                   const isPayer = !isPendingExpense && split.user_id === payerId;
-                  let settled: boolean;
-                  if (isPendingExpense) {
-                    settled = split.paid_amount >= split.amount;
-                  } else if (isPayer) {
-                    settled = true;
-                  } else {
-                    const paid = settledAmount(settlements, split.user_id, payerId!);
-                    settled = paid >= split.amount;
-                  }
-
-                  const remaining = isPendingExpense
-                    ? Math.max(0, split.amount - (split.paid_amount ?? 0))
-                    : 0;
+                  const settled = isPayer ? true : split.paid_amount >= split.amount;
+                  const remaining = isPayer ? 0 : Math.max(0, split.amount - split.paid_amount);
 
                   return (
                     <div key={split.id} className={styles.splitRow}>
@@ -334,29 +238,24 @@ export default function ExpenseDetail({
                       </div>
                       <div className={styles.splitInfo}>
                         <p className={styles.splitName}>{name.split(" ")[0]}</p>
-                        {isPendingExpense && (split.paid_amount ?? 0) > 0 && !settled && (
-                          <p className={styles.splitProgress}>
-                            {formatCLP(split.paid_amount ?? 0)} de {formatCLP(split.amount)}
-                          </p>
+                        <div className={styles.splitStatusRow}>
+                          <span className={`${styles.splitStatusBadge} ${settled ? styles.splitSettled : styles.splitPending}`}>
+                            {settled ? "AL DÍA" : "DEBE"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={styles.splitAmountCol}>
+                        <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
+                        {!settled && remaining > 0 && (
+                          <span className={styles.splitAmountChip}>-{formatCLP(remaining)}</span>
                         )}
                       </div>
-                      <p className={styles.splitAmount}>{formatCLP(split.amount)}</p>
-                      <span className={`${styles.splitStatus} ${settled ? styles.splitSettled : styles.splitPending}`}>
-                        {isPendingExpense
-                          ? settled ? "pagado" : formatCLP(remaining)
-                          : isPayer ? "pagó" : settled ? "pagado" : "pendiente"}
-                      </span>
                     </div>
                   );
                 })}
               </div>
             </section>
 
-            {splitPayError && (
-              <p style={{ fontSize: "0.8125rem", color: "var(--color-negative)", marginTop: "0.5rem" }}>
-                {splitPayError}
-              </p>
-            )}
 
             {/* ── Payment history ──────────────────────────────────────── */}
             {isPendingExpense ? (
@@ -388,95 +287,53 @@ export default function ExpenseDetail({
                 );
               })()
             ) : (
-              // Shared: show settlements between payer and participants
+              // Shared: show split_payments for non-payer splits
               (() => {
-                if (!payerId) return null;
-                const relevant = settlements.filter(
-                  (s) => s.group_id === expense.group_id && s.paid_to === payerId
-                );
-                if (!relevant.length) return null;
+                const allPayments = expense.splits
+                  .filter((s) => s.user_id !== payerId)
+                  .flatMap((s) =>
+                    (s.payments ?? []).map((p) => ({
+                      ...p,
+                      profileName: s.profile?.display_name ?? s.user_id,
+                    }))
+                  )
+                  .sort((a, b) => a.paid_at.localeCompare(b.paid_at));
+                if (!allPayments.length) return null;
                 return (
                   <section className={styles.section}>
                     <p className={styles.sectionLabel}>Historial de pagos</p>
                     <div className={styles.paymentList}>
-                      {relevant
-                        .slice()
-                        .sort((a, b) => a.settled_at.localeCompare(b.settled_at))
-                        .map((s) => {
-                          const fromSplit = expense.splits.find((sp) => sp.user_id === s.paid_by);
-                          const name = fromSplit?.profile?.display_name ?? s.paid_by;
-                          return (
-                            <div key={s.id} className={styles.paymentRow}>
-                              <div className={styles.splitAvatar}>
-                                {name[0]?.toUpperCase() ?? "?"}
-                              </div>
-                              <p className={styles.paymentName}>{name.split(" ")[0]}</p>
-                              <p className={styles.paymentDate}>{formatDate(s.settled_at)}</p>
-                              <p className={styles.paymentAmount}>{formatCLP(s.amount)}</p>
-                            </div>
-                          );
-                        })}
+                      {allPayments.map((p) => (
+                        <div key={p.id} className={styles.paymentRow}>
+                          <div className={styles.splitAvatar}>
+                            {p.profileName[0]?.toUpperCase() ?? "?"}
+                          </div>
+                          <p className={styles.paymentName}>{p.profileName.split(" ")[0]}</p>
+                          <p className={styles.paymentDate}>{formatDate(p.paid_at)}</p>
+                          <p className={styles.paymentAmount}>{formatCLP(p.amount)}</p>
+                        </div>
+                      ))}
                     </div>
                   </section>
                 );
               })()
             )}
 
-            {/* Pending debt banner */}
-            {isPendingExpense && mySplitForPending && myRemaining > 0 && (
-              <div className={styles.infoBanner}>
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-                  <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M9 8v5M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-                <p>
-                  Debes abonar <strong>{formatCLP(myRemaining)}</strong> a este gasto.
-                </p>
-              </div>
-            )}
-
-            {/* Info banner */}
-            {userHasDebt && (
-              <div className={styles.infoBanner}>
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-                  <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M9 8v5M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-                <p>
-                  Le debes{" "}
-                  <strong>{formatCLP(debtAmount)}</strong>{" "}
-                  a {payerName.split(" ")[0]} por este gasto.
-                </p>
-              </div>
-            )}
           </>
         )}
       </div>
 
       {/* ── Pay footer ───────────────────────────────────────────────────── */}
-      {isPendingExpense && mySplitForPending && myRemaining > 0 && (
-        <div className={styles.payFooter}>
-          <button
-            className={styles.payBtn}
-            onClick={() => { setSplitPayRaw(String(myRemaining)); setSplitPayOpen(true); }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Abonar {formatCLP(myRemaining)}
-          </button>
-        </div>
-      )}
       {userHasDebt && (
         <div className={styles.payFooter}>
           <button
             className={styles.payBtn}
-            onClick={() => { setSettleRaw(String(debtAmount)); setSettleOpen(true); }}
+            onClick={() => { setPayRaw(String(debtAmount)); setPayOpen(true); }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
               <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Registrar pago a {payerName.split(" ")[0]}
+            Registrar pago
           </button>
         </div>
       )}
@@ -496,11 +353,6 @@ export default function ExpenseDetail({
               Se eliminará &ldquo;{expense.description}&rdquo; ({formatCLP(expense.amount)}).
               Esta acción no se puede deshacer.
             </p>
-            {settlements.length > 0 && (
-              <p className={styles.modalWarn}>
-                ⚠️ Este grupo tiene pagos registrados. Al eliminar el gasto los saldos se recalcularán — revisa que las deudas queden correctas antes de registrar nuevos pagos.
-              </p>
-            )}
             <div className={styles.modalActions}>
               <button
                 className={styles.btnCancel}
@@ -521,53 +373,47 @@ export default function ExpenseDetail({
         </div>
       )}
 
-      {/* ── Split payment modal ─────────────────────────────────────────── */}
-      {splitPayOpen && mySplitForPending && (
+      {/* ── Payment modal (pending + shared) ──────────────────────────────── */}
+      {payOpen && mySplit && (
         <div
           className={styles.backdrop}
-          onClick={() => { if (!isPendingSplitPay) { setSplitPayOpen(false); setSplitPayRaw(""); setSplitPayError(""); } }}
+          onClick={closePay}
           role="dialog"
           aria-modal="true"
-          aria-label="Registrar abono"
+          aria-label="Registrar pago"
         >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.modalTitle}>Registrar abono</p>
-            <p className={styles.modalSub}>
-              Pendiente: {formatCLP(myRemaining)}
-            </p>
+            <p className={styles.modalTitle}>Registrar pago</p>
+            <p className={styles.modalSub}>Pendiente: {formatCLP(debtAmount)}</p>
             <input
-              ref={splitPayInputRef}
+              ref={payInputRef}
               className={styles.modalInput}
               type="text"
               inputMode="numeric"
-              placeholder="Monto a abonar"
-              value={splitPayRaw
-                ? new Intl.NumberFormat("es-CL").format(
-                    parseInt(splitPayRaw.replace(/\D/g, "") || "0", 10)
-                  )
+              placeholder="Monto a pagar"
+              value={payRaw
+                ? new Intl.NumberFormat("es-CL").format(parseInt(payRaw.replace(/\D/g, "") || "0", 10))
                 : ""}
-              disabled={isPendingSplitPay}
+              disabled={isPendingPay}
               onChange={(e) => {
-                setSplitPayRaw(e.target.value.replace(/\D/g, ""));
-                if (splitPayError) setSplitPayError("");
+                const digits = e.target.value.replace(/\D/g, "");
+                const num = parseInt(digits || "0", 10);
+                setPayRaw(num > debtAmount ? String(debtAmount) : digits);
+                if (payError) setPayError("");
               }}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSplitPay(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handlePay(); }}
             />
-            {splitPayError && <p className={styles.modalError}>{splitPayError}</p>}
+            {payError && <p className={styles.modalError}>{payError}</p>}
             <div className={styles.modalActions}>
-              <button
-                className={styles.btnCancel}
-                onClick={() => { setSplitPayOpen(false); setSplitPayRaw(""); setSplitPayError(""); }}
-                disabled={isPendingSplitPay}
-              >
+              <button className={styles.btnCancel} onClick={closePay} disabled={isPendingPay}>
                 Cancelar
               </button>
               <button
                 className={styles.btnConfirm}
-                onClick={handleSplitPay}
-                disabled={isPendingSplitPay || splitPayAmount <= 0}
+                onClick={handlePay}
+                disabled={isPendingPay || payAmount <= 0}
               >
-                {isPendingSplitPay ? "Registrando…" : "Confirmar"}
+                {isPendingPay ? "Registrando…" : "Confirmar"}
               </button>
             </div>
           </div>
@@ -624,64 +470,6 @@ export default function ExpenseDetail({
         </div>
       )}
 
-      {/* ── Settlement modal ─────────────────────────────────────────────── */}
-      {settleOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={closeSettle}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.modalTitle}>
-              Pagar a {payerName.split(" ")[0]}
-            </p>
-            <p className={styles.modalSub}>
-              Deuda pendiente: {formatCLP(debtAmount)}
-            </p>
-            <input
-              ref={inputRef}
-              className={styles.modalInput}
-              type="text"
-              inputMode="numeric"
-              placeholder="Monto a pagar"
-              value={settleRaw
-                ? new Intl.NumberFormat("es-CL").format(
-                    parseInt(settleRaw.replace(/\D/g, "") || "0", 10)
-                  )
-                : ""}
-              disabled={isPending}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, "");
-                setSettleRaw(digits);
-                if (settleError) setSettleError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSettle();
-              }}
-            />
-            {settleError && (
-              <p className={styles.modalError}>{settleError}</p>
-            )}
-            <div className={styles.modalActions}>
-              <button
-                className={styles.btnCancel}
-                onClick={closeSettle}
-                disabled={isPending}
-              >
-                Cancelar
-              </button>
-              <button
-                className={styles.btnConfirm}
-                onClick={handleSettle}
-                disabled={isPending || settleAmount <= 0}
-              >
-                {isPending ? "Registrando…" : "Confirmar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

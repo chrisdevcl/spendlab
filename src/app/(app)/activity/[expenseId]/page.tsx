@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getExpense } from "@/lib/services/expenses.service";
 import ExpenseDetail from "./_components/expense-detail";
 import type { ExpenseWithDetails } from "@/types";
-import type { Profile, Settlement } from "@/types/database.types";
+import type { Profile } from "@/types/database.types";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -33,8 +33,6 @@ const MOCK_EXPENSE: ExpenseWithDetails = {
   ],
 };
 
-const MOCK_SETTLEMENTS: Settlement[] = [];
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ExpenseDetailPage({
@@ -45,35 +43,15 @@ export default async function ExpenseDetailPage({
   const { expenseId } = await params;
 
   if (DEV_MODE) {
-    return (
-      <ExpenseDetail
-        expense={MOCK_EXPENSE}
-        settlements={MOCK_SETTLEMENTS}
-        userId="u1"
-      />
-    );
+    return <ExpenseDetail expense={MOCK_EXPENSE} userId="u1" />;
   }
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const expense = await getExpense(expenseId);
   if (!expense) notFound();
 
-  // Fetch settlements for this group to determine paid status
-  const { data: settlements } = await supabase
-    .from("settlements")
-    .select("*")
-    .eq("group_id", expense.group_id);
-
-  return (
-    <ExpenseDetail
-      expense={expense}
-      settlements={settlements ?? []}
-      userId={user.id}
-    />
-  );
+  return <ExpenseDetail expense={expense} userId={user.id} />;
 }

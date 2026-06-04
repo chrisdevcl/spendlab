@@ -1,16 +1,17 @@
-import type { Expense, ExpenseSplit, Settlement } from "@/types/database.types";
-import type { Debt, GlobalBalance } from "@/types";
+import type { Expense, ExpenseSplit } from "@/types/database.types";
+import type { Debt, GlobalBalance, ExpenseWithDetails } from "@/types";
 
 /**
  * Net balance for `currentUserId` within a single group.
+ * Uses paid_amount on splits — no settlements needed.
  * Positive = others owe you; negative = you owe others.
  */
 export function computeGroupBalance(
   expenses: Expense[],
   splits: ExpenseSplit[],
-  settlements: Settlement[],
   currentUserId: string
 ): number {
+  const expenseMap = new Map(expenses.map((e) => [e.id, e]));
   let balance = 0;
 
   for (const expense of expenses) {
@@ -23,14 +24,16 @@ export function computeGroupBalance(
     if (split.user_id === currentUserId) {
       balance -= split.amount;
     }
-  }
 
-  for (const settlement of settlements) {
-    if (settlement.paid_by === currentUserId) {
-      balance += settlement.amount;
-    }
-    if (settlement.paid_to === currentUserId) {
-      balance -= settlement.amount;
+    const expense = expenseMap.get(split.expense_id);
+    if (!expense || expense.paid_by === null) continue;
+
+    if (split.user_id === currentUserId && split.user_id !== expense.paid_by && split.paid_amount > 0) {
+      // User paid back part of their debt → balance improves
+      balance += split.paid_amount;
+    } else if (expense.paid_by === currentUserId && split.user_id !== currentUserId && split.paid_amount > 0) {
+      // Someone paid back the user → credit consumed
+      balance -= split.paid_amount;
     }
   }
 
@@ -39,35 +42,30 @@ export function computeGroupBalance(
 
 /**
  * Global balance across all groups for `currentUserId`.
- * Uses a greedy algorithm to simplify debts: sort creditors and debtors by
- * absolute amount descending, then match them until all balances are zero.
+ * Uses paid_amount on splits — no settlements needed.
+ * Uses a greedy algorithm to simplify debts.
  */
 export function computeGlobalBalance(
-  expenses: Expense[],
-  splits: ExpenseSplit[],
-  settlements: Settlement[],
+  expenses: ExpenseWithDetails[],
   currentUserId: string,
   allUserIds: string[]
 ): GlobalBalance {
-  // Build net balance map: positive = creditor, negative = debtor
   const netMap = new Map<string, number>();
-  for (const uid of allUserIds) {
-    netMap.set(uid, 0);
-  }
+  for (const uid of allUserIds) netMap.set(uid, 0);
 
   for (const expense of expenses) {
-    if (expense.paid_by !== null) {
-      netMap.set(expense.paid_by, (netMap.get(expense.paid_by) ?? 0) + expense.amount);
+    if (expense.paid_by === null) continue; // pending expenses handled separately
+
+    netMap.set(expense.paid_by, (netMap.get(expense.paid_by) ?? 0) + expense.amount);
+
+    for (const split of expense.splits) {
+      netMap.set(split.user_id, (netMap.get(split.user_id) ?? 0) - split.amount);
+
+      if (split.user_id !== expense.paid_by && split.paid_amount > 0) {
+        netMap.set(split.user_id, (netMap.get(split.user_id) ?? 0) + split.paid_amount);
+        netMap.set(expense.paid_by, (netMap.get(expense.paid_by) ?? 0) - split.paid_amount);
+      }
     }
-  }
-
-  for (const split of splits) {
-    netMap.set(split.user_id, (netMap.get(split.user_id) ?? 0) - split.amount);
-  }
-
-  for (const settlement of settlements) {
-    netMap.set(settlement.paid_by, (netMap.get(settlement.paid_by) ?? 0) + settlement.amount);
-    netMap.set(settlement.paid_to, (netMap.get(settlement.paid_to) ?? 0) - settlement.amount);
   }
 
   const net = netMap.get(currentUserId) ?? 0;
@@ -85,7 +83,6 @@ function simplifyDebts(netMap: Map<string, number>): Debt[] {
     else if (balance < 0) debtors.push({ userId, amount: -balance });
   }
 
-  // Sort descending for greedy matching
   creditors.sort((a, b) => b.amount - a.amount);
   debtors.sort((a, b) => b.amount - a.amount);
 
@@ -99,11 +96,7 @@ function simplifyDebts(netMap: Map<string, number>): Debt[] {
     const amount = Math.min(creditor.amount, debtor.amount);
 
     if (amount > 0) {
-      debts.push({
-        fromUserId: debtor.userId,
-        toUserId: creditor.userId,
-        amount,
-      });
+      debts.push({ fromUserId: debtor.userId, toUserId: creditor.userId, amount });
     }
 
     creditor.amount -= amount;

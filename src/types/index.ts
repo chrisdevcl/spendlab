@@ -52,3 +52,11 @@ export interface PendingInvitation {
   inviter_name: string;
   expires_at: string;
 }
+
+export interface AcceptedInvitation {
+  id: string;
+  group_id: string;
+  group_name: string;
+  invitee_name: string;
+  accepted_at: string;
+}

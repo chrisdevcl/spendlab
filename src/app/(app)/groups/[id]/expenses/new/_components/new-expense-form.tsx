@@ -275,7 +275,7 @@ export default function NewExpenseForm({
                   onClick={() => setPaidBy(null)}
                   disabled={isPending}
                 >
-                  Sin pagar
+                  Pago pendiente
                 </button>
               </div>
             </div>

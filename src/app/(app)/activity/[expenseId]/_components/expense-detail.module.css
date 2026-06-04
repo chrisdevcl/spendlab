@@ -246,7 +246,7 @@
 
 .splitRow {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
@@ -294,18 +294,49 @@
   white-space: nowrap;
 }
 
-.splitStatus {
-  font-size: 0.75rem;
+.splitStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.2rem;
+}
+
+.splitStatusBadge {
+  display: inline-flex;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
+.splitAmountCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.splitAmountChip {
+  display: inline-flex;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+  background: var(--color-negative-bg);
+  color: var(--color-negative);
+  font-size: 0.6875rem;
   font-weight: 600;
   white-space: nowrap;
-  text-align: right;
 }
 
 .splitSettled {
+  background: var(--color-positive-bg);
   color: var(--color-positive);
+  letter-spacing: 0.04em;
 }
 
 .splitPending {
+  background: var(--color-negative-bg);
   color: var(--color-negative);
 }
 
@@ -366,16 +397,52 @@
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
-  background: var(--color-info-bg);
-  border: 1px solid rgba(29, 78, 216, 0.25);
+  background: var(--color-negative-bg);
+  border: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
   border-radius: var(--radius-lg);
   padding: 0.875rem 1rem;
   font-size: 0.875rem;
-  color: var(--color-info);
+  color: var(--color-text);
   line-height: 1.45;
   margin-bottom: 0.5rem;
 }
-.infoBanner strong { font-weight: 700; }
+.infoBanner svg { color: var(--color-negative); }
+.infoBanner strong {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-negative);
+}
+
+/* ── Debt chip row ──────────────────────────────────────────────────────── */
+.debtChipRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.debtChipLabel {
+  display: inline-flex;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  background: var(--color-negative-bg);
+  color: var(--color-negative);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.debtChipAmount {
+  display: inline-flex;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  background: var(--color-negative-bg);
+  color: var(--color-negative);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 /* ── Pay footer ─────────────────────────────────────────────────────────── */
 .payFooter {

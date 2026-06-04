@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createSettlement as createSettlementService } from "@/lib/services/expenses.service";
+import { registerGroupFullPayment } from "@/lib/services/expenses.service";
 import {
   notifySettlementReceived,
   notifyInvitationAccepted,
@@ -24,21 +24,18 @@ export async function createSettlement(
   amount: number
 ): Promise<{ error?: string }> {
   if (amount <= 0) return { error: "El monto debe ser mayor a 0" };
-
-  if (DEV_MODE) {
-    return {};
-  }
+  if (DEV_MODE) return {};
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  const settlement = await createSettlementService(groupId, paidBy, paidTo, amount);
-  if (!settlement) return { error: "Error al registrar el pago. Intenta de nuevo." };
+  const result = await registerGroupFullPayment(groupId, paidBy, paidTo || null, amount);
+  if (result.error) return { error: result.error };
 
-  await notifySettlementReceived({ groupId, paidBy, paidTo, amount });
+  if (result.applied > 0 && paidTo) {
+    await notifySettlementReceived({ groupId, paidBy, paidTo, amount: result.applied });
+  }
 
   revalidatePath(`/groups/${groupId}`);
   return {};

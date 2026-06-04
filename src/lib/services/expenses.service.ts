@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { calculateEqualSplits } from "@/lib/utils/splits";
 import type { Expense, ExpenseSplit, Settlement } from "@/types/database.types";
 import type { ExpenseWithDetails } from "@/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ─── Read ────────────────────────────────────────────────────────────────────
 
@@ -290,6 +291,88 @@ export async function getAllUserExpenses(
   }
 }
 
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * After creating a shared expense, auto-offset opposing debts between the same
+ * two users in the same group. Only applies to shared expenses (with a payer).
+ * Pending expenses are never auto-netted.
+ */
+async function autoNetSplits(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  groupId: string,
+  newExpenseId: string,
+  paidBy: string,
+  newSplits: { userId: string; amount: number }[]
+): Promise<void> {
+  const nonPayerSplits = newSplits.filter((s) => s.userId !== paidBy);
+  if (!nonPayerSplits.length) return;
+
+  for (const newSplit of nonPayerSplits) {
+    const debtorId  = newSplit.userId; // owes paidBy in the new expense
+    const creditorId = paidBy;          // is owed in the new expense
+
+    // Find shared expenses in this group where debtorId paid (so creditorId owes debtorId)
+    const { data: opposingExpenses } = await supabase
+      .from("expenses")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("paid_by", debtorId)
+      .neq("id", newExpenseId);
+
+    const opposingIds = (opposingExpenses ?? []).map((e) => e.id);
+    if (!opposingIds.length) continue;
+
+    // Get creditor's unpaid splits in those expenses
+    const { data: opposingSplits } = await supabase
+      .from("expense_splits")
+      .select("id, expense_id, amount, paid_amount")
+      .eq("user_id", creditorId)
+      .in("expense_id", opposingIds);
+
+    const unpaidOpposing = (opposingSplits ?? []).filter((s) => s.paid_amount < s.amount);
+    if (!unpaidOpposing.length) continue;
+
+    // Get the newly created split for this debtor to know its current paid_amount
+    const { data: newSplitRow } = await supabase
+      .from("expense_splits")
+      .select("id, amount, paid_amount")
+      .eq("expense_id", newExpenseId)
+      .eq("user_id", debtorId)
+      .single();
+
+    if (!newSplitRow) continue;
+
+    let newRemaining = newSplitRow.amount - newSplitRow.paid_amount;
+
+    for (const opposing of unpaidOpposing) {
+      if (newRemaining <= 0) break;
+
+      const opposingRemaining = opposing.amount - opposing.paid_amount;
+      const toNet = Math.min(newRemaining, opposingRemaining);
+      if (toNet <= 0) continue;
+
+      const now = new Date().toISOString();
+
+      // Offset creditor's debt in old expense
+      await Promise.all([
+        supabase.from("expense_splits").update({ paid_amount: opposing.paid_amount + toNet }).eq("id", opposing.id),
+        supabase.from("split_payments").insert({ split_id: opposing.id, amount: toNet, paid_at: now }),
+      ]);
+
+      // Offset debtor's debt in new expense
+      const newPaidAmount = newSplitRow.amount - newRemaining + toNet;
+      await Promise.all([
+        supabase.from("expense_splits").update({ paid_amount: newPaidAmount }).eq("id", newSplitRow.id),
+        supabase.from("split_payments").insert({ split_id: newSplitRow.id, amount: toNet, paid_at: now }),
+      ]);
+
+      newRemaining -= toNet;
+    }
+  }
+}
+
 // ─── Write ───────────────────────────────────────────────────────────────────
 
 export async function createExpense(
@@ -336,9 +419,15 @@ export async function createExpense(
 
     if (sErr) {
       console.error("[createExpense] splits error:", sErr.message);
-      // Rollback: delete the expense (cascade should remove orphan splits if any)
       await supabase.from("expenses").delete().eq("id", expense.id);
       return null;
+    }
+
+    // Auto-net opposing debts between shared expenses (not pending).
+    // For each non-payer split in this expense, check if the payer has an
+    // unpaid split going the other way and offset them automatically.
+    if (paidBy !== null) {
+      await autoNetSplits(supabase, groupId, expense.id, paidBy, splits);
     }
 
     return expense;
@@ -348,36 +437,166 @@ export async function createExpense(
   }
 }
 
-export async function createSettlement(
+/**
+ * Distributes a payment from `paidBy` to `paidTo` across all unpaid splits
+ * in `groupId` where paidBy is the debtor and paidTo is the expense payer.
+ * Applies oldest-first. Returns total amount actually applied.
+ */
+export async function registerGroupPayment(
   groupId: string,
   paidBy: string,
   paidTo: string,
   amount: number
-): Promise<Settlement | null> {
+): Promise<{ applied: number; error?: string }> {
   try {
     const supabase = await createClient();
 
-    const { data: settlement, error } = await supabase
-      .from("settlements")
-      .insert({
-        group_id: groupId,
-        paid_by: paidBy,
-        paid_to: paidTo,
-        amount,
-        settled_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    // 1. Get expenses in this group where paidTo paid, ordered oldest first
+    const { data: exps, error: eErr } = await supabase
+      .from("expenses")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("paid_by", paidTo)
+      .order("expense_date", { ascending: true })
+      .order("created_at", { ascending: true });
 
-    if (error) {
-      console.error("[createSettlement] error:", error.message);
-      return null;
+    if (eErr) return { applied: 0, error: eErr.message };
+    const expenseIds = (exps ?? []).map((e) => e.id);
+    if (!expenseIds.length) return { applied: 0 };
+
+    // 2. Get paidBy's splits for those expenses that still have an outstanding balance
+    const { data: splits, error: sErr } = await supabase
+      .from("expense_splits")
+      .select("id, expense_id, amount, paid_amount")
+      .eq("user_id", paidBy)
+      .in("expense_id", expenseIds);
+
+    if (sErr) return { applied: 0, error: sErr.message };
+
+    // Keep expense date order and filter unpaid
+    const unpaid = expenseIds
+      .flatMap((eid) => (splits ?? []).filter((s) => s.expense_id === eid))
+      .filter((s) => s.paid_amount < s.amount);
+
+    if (!unpaid.length) return { applied: 0 };
+
+    let remaining = amount;
+    let applied = 0;
+
+    for (const split of unpaid) {
+      if (remaining <= 0) break;
+      const toPay = Math.min(remaining, split.amount - split.paid_amount);
+      if (toPay <= 0) continue;
+
+      const [{ error: uErr }, { error: iErr }] = await Promise.all([
+        supabase.from("expense_splits").update({ paid_amount: split.paid_amount + toPay }).eq("id", split.id),
+        supabase.from("split_payments").insert({ split_id: split.id, amount: toPay }),
+      ]);
+
+      if (uErr || iErr) {
+        console.error("[registerGroupPayment] error:", uErr?.message ?? iErr?.message);
+        break;
+      }
+
+      remaining -= toPay;
+      applied += toPay;
     }
-    return settlement;
+
+    return { applied };
   } catch (err) {
-    console.error("[createSettlement] unexpected error:", err);
-    return null;
+    console.error("[registerGroupPayment] unexpected error:", err);
+    return { applied: 0, error: "Error al registrar el pago" };
   }
+}
+
+/**
+ * Pays pending (no-payer) expense splits for `userId` in `groupId`, oldest first.
+ */
+export async function registerPendingPayment(
+  groupId: string,
+  userId: string,
+  amount: number
+): Promise<{ applied: number; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { data: exps, error: eErr } = await supabase
+      .from("expenses")
+      .select("id")
+      .eq("group_id", groupId)
+      .is("paid_by", null)
+      .order("expense_date", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (eErr) return { applied: 0, error: eErr.message };
+    const expenseIds = (exps ?? []).map((e) => e.id);
+    if (!expenseIds.length) return { applied: 0 };
+
+    const { data: splits, error: sErr } = await supabase
+      .from("expense_splits")
+      .select("id, expense_id, amount, paid_amount")
+      .eq("user_id", userId)
+      .in("expense_id", expenseIds);
+
+    if (sErr) return { applied: 0, error: sErr.message };
+
+    const unpaid = expenseIds
+      .flatMap((eid) => (splits ?? []).filter((s) => s.expense_id === eid))
+      .filter((s) => s.paid_amount < s.amount);
+
+    let remaining = amount;
+    let applied = 0;
+
+    for (const split of unpaid) {
+      if (remaining <= 0) break;
+      const toPay = Math.min(remaining, split.amount - split.paid_amount);
+      if (toPay <= 0) continue;
+
+      const [{ error: uErr }, { error: iErr }] = await Promise.all([
+        supabase.from("expense_splits").update({ paid_amount: split.paid_amount + toPay }).eq("id", split.id),
+        supabase.from("split_payments").insert({ split_id: split.id, amount: toPay }),
+      ]);
+
+      if (uErr || iErr) { console.error("[registerPendingPayment] error:", uErr?.message ?? iErr?.message); break; }
+      remaining -= toPay;
+      applied += toPay;
+    }
+
+    return { applied };
+  } catch (err) {
+    console.error("[registerPendingPayment] unexpected error:", err);
+    return { applied: 0, error: "Error al registrar el pago" };
+  }
+}
+
+/**
+ * Pays all debts for `userId` in `groupId`:
+ * 1. First settles person-to-person debt with `creditorId` (shared expenses).
+ * 2. With any remaining amount, pays pending (no-payer) splits.
+ */
+export async function registerGroupFullPayment(
+  groupId: string,
+  userId: string,
+  creditorId: string | null,
+  amount: number
+): Promise<{ applied: number; error?: string }> {
+  let remaining = amount;
+  let applied = 0;
+
+  if (creditorId && remaining > 0) {
+    const result = await registerGroupPayment(groupId, userId, creditorId, remaining);
+    if (result.error) return { applied, error: result.error };
+    remaining -= result.applied;
+    applied += result.applied;
+  }
+
+  if (remaining > 0) {
+    const result = await registerPendingPayment(groupId, userId, remaining);
+    if (result.error) return { applied, error: result.error };
+    applied += result.applied;
+  }
+
+  return { applied };
 }
 
 export async function recordSplitPayment(

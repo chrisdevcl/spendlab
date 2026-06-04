@@ -64,13 +64,19 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     } catch { return new Date(0); }
   });
 
-  // Expenses added by others in groups with >2 members, created after lastSeen
+  // Notify when user owes money on an expense they didn't create.
+  // Exception: pending expenses (no payer) always notify even if user created them.
   const expenseNotifs = useMemo(() =>
-    expenses.filter(e =>
-      e.paid_by !== userId &&
-      e.splits.length > 2 &&
-      new Date(e.created_at) > lastSeen
-    ).slice(0, 20),
+    expenses.filter((e) => {
+      if (new Date(e.created_at) <= lastSeen) return false;
+      if (e.paid_by === null) {
+        const s = e.splits.find((sp) => sp.user_id === userId);
+        return !!s && s.paid_amount < s.amount;
+      }
+      if (e.paid_by === userId || e.created_by === userId) return false;
+      const s = e.splits.find((sp) => sp.user_id === userId);
+      return !!s && s.paid_amount < s.amount;
+    }).slice(0, 20),
     [expenses, userId, lastSeen]
   );
 
@@ -325,7 +331,9 @@ function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: 
         <p className={styles.expenseDesc}>{expense.description}</p>
         <div className={styles.badgeRow}>
           <span className={styles.groupBadge}>{expense.group.name}</span>
-          <span className={styles.categoryBadge}>Sin categoría</span>
+          {expense.splits.length > 1 && (
+            <span className={styles.compartidoBadge}>Compartido</span>
+          )}
         </div>
       </div>
       <div className={styles.expenseRight}>

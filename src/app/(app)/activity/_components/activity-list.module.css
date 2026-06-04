@@ -545,6 +545,18 @@
   white-space: nowrap;
 }
 
+.compartidoBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: rgba(29, 78, 216, 0.1);
+  color: var(--color-info);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .categoryBadge {
   display: inline-flex;
   align-self: flex-start;

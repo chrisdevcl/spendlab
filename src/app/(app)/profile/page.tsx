@@ -84,13 +84,8 @@ export default async function ProfilePage() {
     .reduce((sum, e) => sum + e.amount, 0);
   const totalExpenses = allExpenses.length;
 
-  // All-time net balance
+  // All-time net balance using paid_amount (no settlements needed)
   const groupIds = [...new Set((memberships ?? []).map((m) => m.group_id))];
-  const { data: settlements } = groupIds.length
-    ? await supabase.from("settlements").select("*").in("group_id", groupIds)
-    : { data: [] };
-
-  const allSplits = allExpenses.flatMap((e) => e.splits);
   const profileMap = new Map<string, Profile>();
   allExpenses.forEach((e) => {
     if (e.payer) profileMap.set(e.payer.id, e.payer);
@@ -100,13 +95,7 @@ export default async function ProfilePage() {
   });
   const allUserIds = [...profileMap.keys()];
 
-  const { net: netBalance } = computeGlobalBalance(
-    allExpenses,
-    allSplits,
-    settlements ?? [],
-    user.id,
-    allUserIds
-  );
+  const { net: netBalance } = computeGlobalBalance(allExpenses, user.id, allUserIds);
 
   const stats: ProfileStats = {
     totalPaid,

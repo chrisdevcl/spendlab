@@ -10,8 +10,8 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation } from "@/types";
-import type { Profile, Settlement } from "@/types/database.types";
+import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation, AcceptedInvitation } from "@/types";
+import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
 import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction } from "../actions";
@@ -22,11 +22,11 @@ const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
 interface Props {
   group: GroupWithMembers;
   expenses: ExpenseWithDetails[];
-  settlements: Settlement[];
   userId: string;
   profile: Profile | null;
   allGroups: GroupWithMembers[];
   invitations: PendingInvitation[];
+  acceptedInvitations?: AcceptedInvitation[];
 }
 
 // YYYY-MM string for a given Date
@@ -47,41 +47,25 @@ type ExpenseStatus = "te-deben" | "debes" | "al-dia" | "pendiente" | null;
 
 function getExpenseStatus(
   expense: ExpenseWithDetails,
-  settlements: Settlement[],
   userId: string
 ): ExpenseStatus {
-  // Pending: all participants owe their share
   if (expense.paid_by === null) {
     return expense.splits.some((s) => s.user_id === userId) ? "pendiente" : null;
   }
 
   const payerId = expense.paid_by;
-
-  // Personal: no participants other than the payer
   const hasOtherParticipants = expense.splits.some((s) => s.user_id !== payerId);
   if (!hasOtherParticipants) return null;
 
-  const groupSettlements = settlements.filter((s) => s.group_id === expense.group_id);
-
   if (payerId === userId) {
-    // User paid — check if everyone else has settled up
     const others = expense.splits.filter((s) => s.user_id !== userId);
-    const allSettled = others.every((split) => {
-      const paid = groupSettlements
-        .filter((s) => s.paid_by === split.user_id && s.paid_to === userId)
-        .reduce((sum, s) => sum + s.amount, 0);
-      return paid >= split.amount;
-    });
+    const allSettled = others.every((s) => s.paid_amount >= s.amount);
     return allSettled ? "al-dia" : "te-deben";
   }
 
   const userSplit = expense.splits.find((s) => s.user_id === userId);
-  if (!userSplit) return null; // User not involved
-
-  const paid = groupSettlements
-    .filter((s) => s.paid_by === userId && s.paid_to === payerId)
-    .reduce((sum, s) => sum + s.amount, 0);
-  return paid >= userSplit.amount ? "al-dia" : "debes";
+  if (!userSplit) return null;
+  return userSplit.paid_amount >= userSplit.amount ? "al-dia" : "debes";
 }
 
 function groupByDate(
@@ -108,10 +92,10 @@ function firstWord(name: string): string {
 export default function GroupDetail({
   group,
   expenses,
-  settlements,
   userId,
   allGroups,
   invitations,
+  acceptedInvitations = [],
 }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -128,9 +112,8 @@ export default function GroupDetail({
     const keys = new Set<string>();
     keys.add(currentMonthKey);
     expenses.forEach((e) => keys.add(e.expense_date.slice(0, 7)));
-    settlements.forEach((s) => keys.add(s.settled_at.slice(0, 7)));
     return [...keys].sort().reverse();
-  }, [expenses, settlements, currentMonthKey]);
+  }, [expenses, currentMonthKey]);
 
   // Month lives in the URL (?m=2026-05) so:
   //   - router.back() from expense detail preserves the param
@@ -159,12 +142,9 @@ export default function GroupDetail({
   const memberIds = group.members.map((m) => m.id);
   const profileMap = new Map(group.members.map((m) => [m.id, m]));
 
-  // All-time outstanding balance — always uses every expense and settlement ever
-  // recorded, regardless of which month is selected. The month picker only
-  // filters the expense list below.
+  // All-time outstanding balance using paid_amount — no settlements needed.
   const { debts } = useMemo(() => {
-    const allSplits = expenses.flatMap((e) => e.splits);
-    const raw = computeGlobalBalance(expenses, allSplits, settlements, userId, memberIds);
+    const raw = computeGlobalBalance(expenses, userId, memberIds);
     return {
       debts: raw.debts.map((d) => ({
         ...d,
@@ -173,7 +153,7 @@ export default function GroupDetail({
       })),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenses, settlements, userId]);
+  }, [expenses, userId]);
 
   // ── Invite modal ────────────────────────────────────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -217,11 +197,8 @@ export default function GroupDetail({
   }
 
   // ── Settlement modal ────────────────────────────────────────────────────────
-  const [settlementTarget, setSettlementTarget] = useState<{
-    toUserId: string;
-    toName: string;
-    maxAmount: number;
-  } | null>(null);
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleGroupToUserId, setSettleGroupToUserId] = useState<string>("");
   const [settlementRaw, setSettlementRaw] = useState("");
   const [settlementError, setSettlementError] = useState("");
   const [isPendingSettle, startSettleTransition] = useTransition();
@@ -230,50 +207,52 @@ export default function GroupDetail({
   const settlementAmount = parseInt(settlementRaw.replace(/\D/g, "") || "0", 10);
 
   useEffect(() => {
-    if (!settlementTarget) return;
+    if (!settleOpen) return;
     const t = setTimeout(() => settlementInputRef.current?.select(), 80);
     return () => clearTimeout(t);
-  }, [settlementTarget]);
+  }, [settleOpen]);
 
-  function openSettlement(toUserId: string, toName: string, maxAmount: number) {
+  function openSettle() {
+    const topDebt = debts.find((d) => d.fromUserId === userId);
+    setSettleGroupToUserId(topDebt?.toUserId ?? "");
+    setSettlementRaw(String(iOwe));
     setSettlementError("");
-    setSettlementRaw(String(maxAmount));
-    setSettlementTarget({ toUserId, toName, maxAmount });
+    setSettleOpen(true);
   }
 
   const closeSettlement = useCallback(() => {
     if (isPendingSettle) return;
-    setSettlementTarget(null);
+    setSettleOpen(false);
     setSettlementRaw("");
     setSettlementError("");
   }, [isPendingSettle]);
 
   useEffect(() => {
-    if (!settlementTarget) return;
+    if (!settleOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") closeSettlement();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [settlementTarget, closeSettlement]);
+  }, [settleOpen, closeSettlement]);
 
   function handleSettle() {
     if (settlementAmount <= 0) {
       setSettlementError("Ingresa un monto válido");
       return;
     }
-    if (!settlementTarget) return;
+    if (!settleGroupToUserId) return;
     startSettleTransition(async () => {
       const result = await createSettlement(
         group.id,
         userId,
-        settlementTarget.toUserId,
+        settleGroupToUserId,
         settlementAmount
       );
       if (result.error) {
         setSettlementError(result.error);
       } else {
-        setSettlementTarget(null);
+        setSettleOpen(false);
         router.refresh();
       }
     });
@@ -330,18 +309,28 @@ export default function GroupDetail({
     } catch { return new Date(0); }
   });
 
-  // Only show expense notifications for groups with >2 members
+  // Notify when user owes money on an expense they didn't create.
+  // Exception: pending expenses (no payer) always notify even if user created them.
   const expenseNotifs = useMemo(() =>
-    group.members.length > 2
-      ? expenses.filter(e =>
-          e.paid_by !== userId &&
-          new Date(e.created_at) > lastSeen
-        ).slice(0, 20)
-      : [],
-    [expenses, userId, group.members.length, lastSeen]
+    expenses.filter((e) => {
+      if (new Date(e.created_at) <= lastSeen) return false;
+      if (e.paid_by === null) {
+        // Pending: notify if user has an unpaid split
+        const s = e.splits.find((sp) => sp.user_id === userId);
+        return !!s && s.paid_amount < s.amount;
+      }
+      // Shared: skip if user is payer or creator
+      if (e.paid_by === userId || e.created_by === userId) return false;
+      const s = e.splits.find((sp) => sp.user_id === userId);
+      return !!s && s.paid_amount < s.amount;
+    }).slice(0, 20),
+    [expenses, userId, lastSeen]
   );
 
-  const totalBadge = invitations.length + expenseNotifs.length;
+  const acceptedNotifs = acceptedInvitations.filter(
+    (inv) => new Date(inv.accepted_at) > lastSeen
+  );
+  const totalBadge = invitations.length + expenseNotifs.length + acceptedNotifs.length;
 
   function closeNotifs() {
     setNotifOpen(false);
@@ -420,7 +409,8 @@ export default function GroupDetail({
     [expenses, userId]
   );
 
-  const iOwe    = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0) + pendingOwe;
+  const debtToPersons = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
+  const iOwe    = debtToPersons + pendingOwe;
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
   const [debtsExpanded, setDebtsExpanded] = useState(false);
@@ -582,11 +572,7 @@ export default function GroupDetail({
                     {iOwe > 0 && (
                       <button
                         className={styles.balanceRegisterBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const debt = debts.find((d) => d.fromUserId === userId);
-                          if (debt) openSettlement(debt.toUserId, firstWord(debt.toProfile?.display_name ?? ""), debt.amount);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); openSettle(); }}
                       >
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
                           <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -621,34 +607,43 @@ export default function GroupDetail({
                                 <div key={label} className={styles.dateGroup}>
                                     <p className={styles.dateGroupLabel}>{label}</p>
                                     <div className={styles.expenseList}>
-                                        {dateExpenses.map((expense) => (
-                                            <Link
-                                                key={expense.id}
-                                                href={`/activity/${expense.id}`}
-                                                className={styles.expenseRow}
-                                            >
+                                        {dateExpenses.map((expense) => {
+                                          const s = getExpenseStatus(expense, userId);
+                                          const userSplit = expense.splits.find((sp) => sp.user_id === userId);
+                                          const remaining = (s === "debes" || s === "pendiente") && userSplit
+                                            ? Math.max(0, userSplit.amount - (userSplit.paid_amount ?? 0))
+                                            : 0;
+                                          const owedToUser = s === "te-deben"
+                                            ? expense.splits
+                                                .filter((sp) => sp.user_id !== userId)
+                                                .reduce((sum, sp) => sum + Math.max(0, sp.amount - sp.paid_amount), 0)
+                                            : 0;
+
+                                          let statusBadge: React.ReactNode = null;
+                                          if (s === "te-deben")       statusBadge = <span className={styles.statusTeDeben}>TE DEBEN</span>;
+                                          else if (s === "debes")     statusBadge = remaining > 0 ? <span className={styles.statusDebes}>DEBE</span> : <span className={styles.statusAlDia}>AL DÍA</span>;
+                                          else if (s === "al-dia")    statusBadge = <span className={styles.statusAlDia}>AL DÍA</span>;
+                                          else if (s === "pendiente") statusBadge = remaining > 0 ? <span className={styles.statusDebes}>DEBE</span> : <span className={styles.statusAlDia}>AL DÍA</span>;
+
+                                          return (
+                                            <Link key={expense.id} href={`/activity/${expense.id}`} className={styles.expenseRow}>
                                                 <div className={styles.expenseLeft}>
                                                     <p className={styles.expenseDesc}>{expense.description}</p>
-                                                    <div className={styles.badgeRow}>
-                                                        <span className={styles.categoryBadge}>Sin categoría</span>
-                                                        {(() => {
-                                                          const s = getExpenseStatus(expense, settlements, userId);
-                                                          if (s === "te-deben")  return <span className={styles.statusTeDeben}>TE DEBEN</span>;
-                                                          if (s === "debes")     return <span className={styles.statusDebes}>DEBO</span>;
-                                                          if (s === "al-dia")    return <span className={styles.statusAlDia}>AL DÍA</span>;
-                                                          if (s === "pendiente") return <span className={styles.statusPendiente}>SIN PAGAR</span>;
-                                                          return null;
-                                                        })()}
-                                                    </div>
+                                                    <div className={styles.badgeRow}>{statusBadge}</div>
                                                 </div>
                                                 <div className={styles.expenseRight}>
-                                                    <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+                                                    <div className={styles.expenseAmountCol}>
+                                                        <p className={styles.expenseAmount}>{formatCLP(expense.amount)}</p>
+                                                        {remaining > 0 && <span className={styles.debesMonto}>-{formatCLP(remaining)}</span>}
+                                                        {owedToUser > 0 && <span className={styles.chipPositive}>+{formatCLP(owedToUser)}</span>}
+                                                    </div>
                                                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={styles.expenseChevron}>
                                                         <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                                                     </svg>
                                                 </div>
                                             </Link>
-                                        ))}
+                                          );
+                                        })}
                                     </div>
                                 </div>
                             ))}
@@ -693,20 +688,20 @@ export default function GroupDetail({
             )}
 
             {/* ── Settlement modal ─────────────────────────────────────────────── */}
-            {settlementTarget && (
+            {settleOpen && (
                 <div
                     className={styles.backdrop}
                     onClick={closeSettlement}
                     role="dialog"
                     aria-modal="true"
-                    aria-label={`Pagar a ${settlementTarget.toName}`}
+                    aria-label="Registrar pago"
                 >
                     <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                        <p className={styles.modalTitle}>
-                            Pagar a {settlementTarget.toName}
-                        </p>
+                        <p className={styles.modalTitle}>Registrar pago</p>
                         <p className={styles.modalSub}>
-                            Deuda: {formatCLP(settlementTarget.maxAmount)}
+                          {debtToPersons > 0
+                            ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
+                            : `Gastos pendientes: ${formatCLP(pendingOwe)}`}
                         </p>
                         <input
                             ref={settlementInputRef}
@@ -718,7 +713,8 @@ export default function GroupDetail({
                             disabled={isPendingSettle}
                             onChange={(e) => {
                                 const digits = e.target.value.replace(/\D/g, "");
-                                setSettlementRaw(digits);
+                                const num = parseInt(digits || "0", 10);
+                                setSettlementRaw(num > iOwe ? String(iOwe) : digits);
                                 if (settlementError) setSettlementError("");
                             }}
                             onKeyDown={(e) => {
@@ -924,7 +920,7 @@ export default function GroupDetail({
                     <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
                         <p className={styles.notifTitle}>Notificaciones</p>
 
-                        {expenseNotifs.length === 0 && invitations.length === 0 && (
+                        {expenseNotifs.length === 0 && invitations.length === 0 && acceptedNotifs.length === 0 && (
                             <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
                         )}
 
@@ -952,7 +948,22 @@ export default function GroupDetail({
                             </>
                         )}
 
-                        {expenseNotifs.length > 0 && invitations.length > 0 && (
+                        {acceptedNotifs.length > 0 && (
+                            <>
+                                {(expenseNotifs.length > 0) && <div className={styles.notifSectionGap} />}
+                                <p className={styles.notifSubLabel}>INVITACIONES ACEPTADAS · {acceptedNotifs.length}</p>
+                                {acceptedNotifs.map((inv) => (
+                                    <div key={inv.id} className={styles.expenseNotifCard}>
+                                        <p className={styles.expenseNotifDesc}>{inv.invitee_name}</p>
+                                        <p className={styles.expenseNotifMeta}>
+                                            Se unió a {inv.group_name}
+                                        </p>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+
+                        {(expenseNotifs.length > 0 || acceptedNotifs.length > 0) && invitations.length > 0 && (
                             <div className={styles.notifSectionGap} />
                         )}
 
