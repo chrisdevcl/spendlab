@@ -7,6 +7,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useSyncExternalStore,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -18,6 +19,19 @@ import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction
 import styles from "./group-detail.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
+
+// useSyncExternalStore helpers — defined outside component for stable references
+function subscribeLastSeen() { return () => {}; }
+function getLastSeenServer(): string | null { return null; }
+function getLastSeenClient(): string | null {
+  try {
+    const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
+    if (ts) return ts;
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LS_LAST_SEEN_KEY, d);
+    return d;
+  } catch { return null; }
+}
 
 interface Props {
   group: GroupWithMembers;
@@ -298,24 +312,21 @@ export default function GroupDetail({
     !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
   // ── Expense notifications ───────────────────────────────────────────────────
-  const [lastSeen, setLastSeen] = useState<Date>(() => {
-    if (typeof window === "undefined") return new Date(0);
-    try {
-      const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
-      if (ts) return new Date(ts);
-      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      localStorage.setItem(LS_LAST_SEEN_KEY, d.toISOString());
-      return d;
-    } catch { return new Date(0); }
-  });
+  // useSyncExternalStore: null on server, real localStorage value on client.
+  // No useEffect+setState needed, so react-hooks/set-state-in-effect doesn't trigger.
+  const storedTs = useSyncExternalStore(subscribeLastSeen, getLastSeenClient, getLastSeenServer);
+  const [lastSeenOverride, setLastSeenOverride] = useState<string | null>(null);
+  const lastSeenTs = lastSeenOverride ?? storedTs;
+  const notifHydrated = lastSeenTs !== null;
 
   // Notify when user owes money on an expense they didn't create.
   // Exception: pending expenses (no payer) always notify even if user created them.
-  const expenseNotifs = useMemo(() =>
-    expenses.filter((e) => {
+  const expenseNotifs = useMemo(() => {
+    const lastSeen = lastSeenTs ? new Date(lastSeenTs) : new Date(0);
+    return expenses.filter((e) => {
       if (new Date(e.created_at) <= lastSeen) return false;
       if (e.paid_by === null) {
-        // Pending: notify if user has an unpaid split
+        if (e.created_by === userId) return false;
         const s = e.splits.find((sp) => sp.user_id === userId);
         return !!s && s.paid_amount < s.amount;
       }
@@ -323,12 +334,11 @@ export default function GroupDetail({
       if (e.paid_by === userId || e.created_by === userId) return false;
       const s = e.splits.find((sp) => sp.user_id === userId);
       return !!s && s.paid_amount < s.amount;
-    }).slice(0, 20),
-    [expenses, userId, lastSeen]
-  );
+    }).slice(0, 20);
+  }, [expenses, userId, lastSeenTs]);
 
   const acceptedNotifs = acceptedInvitations.filter(
-    (inv) => new Date(inv.accepted_at) > lastSeen
+    (inv) => lastSeenTs ? inv.accepted_at > lastSeenTs : true
   );
   const totalBadge = invitations.length + expenseNotifs.length + acceptedNotifs.length;
 
@@ -337,7 +347,7 @@ export default function GroupDetail({
     try {
       const now = new Date().toISOString();
       localStorage.setItem(LS_LAST_SEEN_KEY, now);
-      setLastSeen(new Date(now));
+      setLastSeenOverride(now);
     } catch { /* ignore */ }
   }
 
@@ -440,12 +450,12 @@ export default function GroupDetail({
                     </svg>
                 </button>
 
-                <button className={styles.iconBtnBell} onClick={() => setNotifOpen(true)} aria-label={`Notificaciones${totalBadge > 0 ? ` · ${totalBadge}` : ""}`}>
+                <button className={styles.iconBtnBell} onClick={() => setNotifOpen(true)} aria-label={`Notificaciones${notifHydrated && totalBadge > 0 ? ` · ${totalBadge}` : ""}`}>
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                         <path d="M9 2a5.5 5.5 0 0 1 5.5 5.5c0 3 .9 4.5 1.5 5H2c.6-.5 1.5-2 1.5-5A5.5 5.5 0 0 1 9 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
                         <path d="M7 15a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                     </svg>
-                    {totalBadge > 0 && (
+                    {notifHydrated && totalBadge > 0 && (
                         <span className={styles.bellBadge}>{totalBadge}</span>
                     )}
                 </button>
