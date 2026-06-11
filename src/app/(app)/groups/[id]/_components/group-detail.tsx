@@ -15,6 +15,8 @@ import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation, AcceptedI
 import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
+import BalanceCard from "@/components/balance-card/balance-card";
+import SettlementModal from "@/components/settlement-modal/settlement-modal";
 import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction, renameGroup as renameGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
@@ -216,15 +218,8 @@ export default function GroupDetail({
   const [settlementRaw, setSettlementRaw] = useState("");
   const [settlementError, setSettlementError] = useState("");
   const [isPendingSettle, startSettleTransition] = useTransition();
-  const settlementInputRef = useRef<HTMLInputElement>(null);
 
   const settlementAmount = parseInt(settlementRaw.replace(/\D/g, "") || "0", 10);
-
-  useEffect(() => {
-    if (!settleOpen) return;
-    const t = setTimeout(() => settlementInputRef.current?.select(), 80);
-    return () => clearTimeout(t);
-  }, [settleOpen]);
 
   function openSettle() {
     const topDebt = debts.find((d) => d.fromUserId === userId);
@@ -234,21 +229,17 @@ export default function GroupDetail({
     setSettleOpen(true);
   }
 
-  const closeSettlement = useCallback(() => {
+  function closeSettlement() {
     if (isPendingSettle) return;
     setSettleOpen(false);
     setSettlementRaw("");
     setSettlementError("");
-  }, [isPendingSettle]);
+  }
 
-  useEffect(() => {
-    if (!settleOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeSettlement();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [settleOpen, closeSettlement]);
+  function handleSettlementAmountChange(digits: string) {
+    setSettlementRaw(digits);
+    if (settlementError) setSettlementError("");
+  }
 
   function handleSettle() {
     if (settlementAmount <= 0) {
@@ -543,90 +534,25 @@ export default function GroupDetail({
 
                 {/* ── Balance card (multi only) ─────────────────────────────── */}
                 {multiMember && (
-                  <div
-                    className={styles.balanceCard}
-                    onClick={() => debts.length > 1 && setDebtsExpanded((p) => !p)}
-                  >
-                    {/* Top row: month pill + chevron (only when multiple debts to expand) */}
-                    <div className={styles.balanceTopRow}>
-                      {showPicker ? (
-                        <div className={styles.monthPill} onClick={(e) => e.stopPropagation()}>
-                          <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                            <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          <select
-                            className={styles.monthSelectOverlay}
-                            value={selectedMonth}
-                            onChange={(e) => handleMonthChange(e.target.value)}
-                            aria-label="Seleccionar mes"
-                          >
-                            {availableMonths.map((key) => (
-                              <option key={key} value={key}>{monthLabel(key)}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
-                      )}
-                      {debts.length > 1 && (
-                        <svg
-                          className={`${styles.balanceChevron} ${debtsExpanded ? styles.balanceChevronUp : ""}`}
-                          width="16" height="16" viewBox="0 0 16 16" fill="none"
-                        >
-                          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </div>
-
-                    <span className={styles.balanceDebtLabel}>TOTAL DEL MES ({filteredExpenses.length})</span>
-                    <p className={styles.balanceAmount}>
-                      {formatCLP(monthTotal)}
-                    </p>
-
-                    {/* Divider + DEBES / TE DEBEN — always visible even at $0 */}
-                    <div className={styles.balanceDividerLine} />
-                    <div className={styles.balanceDebtRow}>
-                      <div className={styles.balanceDebtStat}>
-                        <span className={styles.balanceDebtLabel}>DEBES</span>
-                        <span className={styles.balanceDebtValue}>{formatCLP(iOwe)}</span>
-                      </div>
-                      <div className={styles.balanceDebtStat}>
-                        <span className={styles.balanceDebtLabel}>TE DEBEN</span>
-                        <span className={styles.balanceDebtValue}>{formatCLP(theyOwe)}</span>
-                      </div>
-                    </div>
-
-                    {/* Expanded breakdown (grupos con >2 miembros) */}
-                    {debtsExpanded && debts.length > 0 && (
-                      <div className={styles.balanceBreakdown}>
-                        <div className={styles.balanceDivider} />
-                        {debts.map((debt, i) => {
-                          const fromName = firstWord(debt.fromProfile?.display_name ?? debt.fromUserId);
-                          const toName   = firstWord(debt.toProfile?.display_name   ?? debt.toUserId);
-                          return (
-                            <div key={i} className={styles.debtBreakdownRow}>
-                              <span className={styles.debtBreakdownNames}>{fromName} → {toName}</span>
-                              <span className={styles.debtBreakdownAmount}>{formatCLP(debt.amount)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Registrar pago */}
-                    {iOwe > 0 && (
-                      <button
-                        className={styles.balanceRegisterBtn}
-                        onClick={(e) => { e.stopPropagation(); openSettle(); }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                          <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                        Registrar pago
-                      </button>
-                    )}
-                  </div>
+                  <BalanceCard
+                    selectedMonth={selectedMonth}
+                    availableMonths={availableMonths}
+                    showPicker={showPicker}
+                    onMonthChange={handleMonthChange}
+                    monthLabel={monthLabel}
+                    expenseCount={filteredExpenses.length}
+                    totalAmount={monthTotal}
+                    debes={iOwe}
+                    teDeben={theyOwe}
+                    debts={debts.map((debt) => ({
+                      fromName: firstWord(debt.fromProfile?.display_name ?? debt.fromUserId),
+                      toName: firstWord(debt.toProfile?.display_name ?? debt.toUserId),
+                      amount: debt.amount,
+                    }))}
+                    expanded={debtsExpanded}
+                    onToggleExpand={() => setDebtsExpanded((p) => !p)}
+                    onRegisterPago={iOwe > 0 ? openSettle : undefined}
+                  />
                 )}
 
                 {/* ── Expenses section ─────────────────────────────────────────── */}
@@ -734,61 +660,21 @@ export default function GroupDetail({
             )}
 
             {/* ── Settlement modal ─────────────────────────────────────────────── */}
-            {settleOpen && (
-                <div
-                    className={styles.backdrop}
-                    onClick={closeSettlement}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Registrar pago"
-                >
-                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                        <p className={styles.modalTitle}>Registrar pago</p>
-                        <p className={styles.modalSub}>
-                          {debtToPersons > 0
-                            ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
-                            : `Gastos pendientes: ${formatCLP(pendingOwe)}`}
-                        </p>
-                        <input
-                            ref={settlementInputRef}
-                            className={styles.modalInput}
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="Monto a pagar"
-                            value={settlementRaw ? formatCLPInput(settlementRaw) : ""}
-                            disabled={isPendingSettle}
-                            onChange={(e) => {
-                                const digits = e.target.value.replace(/\D/g, "");
-                                const num = parseInt(digits || "0", 10);
-                                setSettlementRaw(num > iOwe ? String(iOwe) : digits);
-                                if (settlementError) setSettlementError("");
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSettle();
-                            }}
-                        />
-                        {settlementError && (
-                            <p className={styles.modalError}>{settlementError}</p>
-                        )}
-                        <div className={styles.modalActions}>
-                            <button
-                                className={styles.btnCancel}
-                                onClick={closeSettlement}
-                                disabled={isPendingSettle}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                className={styles.btnConfirm}
-                                onClick={handleSettle}
-                                disabled={isPendingSettle || settlementAmount <= 0}
-                            >
-                                {isPendingSettle ? "Registrando…" : "Confirmar"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <SettlementModal
+                open={settleOpen}
+                onClose={closeSettlement}
+                subtitle={
+                    debtToPersons > 0
+                        ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
+                        : `Gastos pendientes: ${formatCLP(pendingOwe)}`
+                }
+                amountRaw={settlementRaw}
+                onAmountChange={handleSettlementAmountChange}
+                maxAmount={iOwe}
+                error={settlementError}
+                pending={isPendingSettle}
+                onConfirm={handleSettle}
+            />
 
             {/* ── Invite modal ────────────────────────────────────────────────── */}
             {inviteOpen && (
@@ -1138,11 +1024,4 @@ function GroupBalanceChip({ balance }: { balance: number }) {
   if (balance === 0) return <span className={styles.chipNeutral}>Sin deudas</span>;
   if (balance > 0)   return <span className={styles.chipPositive}>+{formatCLP(balance)}</span>;
   return <span className={styles.chipNegative}>{formatCLP(balance)}</span>;
-}
-
-/** Format a raw digit string as CLP for display inside an input */
-function formatCLPInput(raw: string): string {
-  const n = parseInt(raw.replace(/\D/g, "") || "0", 10);
-  if (n === 0) return "";
-  return new Intl.NumberFormat("es-CL").format(n);
 }

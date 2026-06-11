@@ -328,7 +328,7 @@ export async function notifySettlementReceived({
   paidTo,
   amount,
 }: {
-  groupId: string;
+  groupId: string | null;
   paidBy: string;
   paidTo: string;
   amount: number;
@@ -337,7 +337,9 @@ export async function notifySettlementReceived({
     const admin = createAdminClient();
 
     const [{ data: group }, { data: payer }] = await Promise.all([
-      admin.from("groups").select("name").eq("id", groupId).single(),
+      groupId
+        ? admin.from("groups").select("name").eq("id", groupId).single()
+        : Promise.resolve({ data: null }),
       admin.from("profiles").select("display_name").eq("id", paidBy).single(),
     ]);
 
@@ -348,7 +350,7 @@ export async function notifySettlementReceived({
     const payload = JSON.stringify({
       title: groupName,
       body: `${payerName} te pagó ${formatted}`,
-      url: `/groups/${groupId}`,
+      url: groupId ? `/groups/${groupId}` : "/activity",
     });
 
     await sendToUsers([paidTo], payload);

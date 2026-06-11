@@ -439,11 +439,12 @@ export async function createExpense(
 
 /**
  * Distributes a payment from `paidBy` to `paidTo` across all unpaid splits
- * in `groupId` where paidBy is the debtor and paidTo is the expense payer.
+ * where paidBy is the debtor and paidTo is the expense payer.
  * Applies oldest-first. Returns total amount actually applied.
+ * If `groupId` is null, applies across all of paidBy's groups.
  */
 export async function registerGroupPayment(
-  groupId: string,
+  groupId: string | null,
   paidBy: string,
   paidTo: string,
   amount: number
@@ -451,14 +452,16 @@ export async function registerGroupPayment(
   try {
     const supabase = await createClient();
 
-    // 1. Get expenses in this group where paidTo paid, ordered oldest first
-    const { data: exps, error: eErr } = await supabase
+    // 1. Get expenses where paidTo paid, ordered oldest first
+    let expensesQuery = supabase
       .from("expenses")
       .select("id")
-      .eq("group_id", groupId)
       .eq("paid_by", paidTo)
       .order("expense_date", { ascending: true })
       .order("created_at", { ascending: true });
+    if (groupId) expensesQuery = expensesQuery.eq("group_id", groupId);
+
+    const { data: exps, error: eErr } = await expensesQuery;
 
     if (eErr) return { applied: 0, error: eErr.message };
     const expenseIds = (exps ?? []).map((e) => e.id);
@@ -511,22 +514,25 @@ export async function registerGroupPayment(
 
 /**
  * Pays pending (no-payer) expense splits for `userId` in `groupId`, oldest first.
+ * If `groupId` is null, applies across all of userId's groups.
  */
 export async function registerPendingPayment(
-  groupId: string,
+  groupId: string | null,
   userId: string,
   amount: number
 ): Promise<{ applied: number; error?: string }> {
   try {
     const supabase = await createClient();
 
-    const { data: exps, error: eErr } = await supabase
+    let expensesQuery = supabase
       .from("expenses")
       .select("id")
-      .eq("group_id", groupId)
       .is("paid_by", null)
       .order("expense_date", { ascending: true })
       .order("created_at", { ascending: true });
+    if (groupId) expensesQuery = expensesQuery.eq("group_id", groupId);
+
+    const { data: exps, error: eErr } = await expensesQuery;
 
     if (eErr) return { applied: 0, error: eErr.message };
     const expenseIds = (exps ?? []).map((e) => e.id);
@@ -573,9 +579,10 @@ export async function registerPendingPayment(
  * Pays all debts for `userId` in `groupId`:
  * 1. First settles person-to-person debt with `creditorId` (shared expenses).
  * 2. With any remaining amount, pays pending (no-payer) splits.
+ * If `groupId` is null, applies across all of userId's groups.
  */
 export async function registerGroupFullPayment(
-  groupId: string,
+  groupId: string | null,
   userId: string,
   creditorId: string | null,
   amount: number

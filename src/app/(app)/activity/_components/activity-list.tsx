@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ExpenseWithDetails, PendingInvitation } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
+import BalanceCard from "@/components/balance-card/balance-card";
+import SettlementModal from "@/components/settlement-modal/settlement-modal";
+import { createGlobalSettlement } from "../actions";
 import styles from "./activity-list.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
@@ -151,7 +155,7 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
   }, 0);
 
   // Balance total across all groups — same logic as the group card
-  const { iOwe, theyOwe } = useMemo(() => {
+  const { iOwe, theyOwe, debts, debtToPersons, pendingOwe } = useMemo(() => {
     const allUserIds = (() => {
       const ids = new Set<string>([userId]);
       for (const e of expenses) {
@@ -177,8 +181,54 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
       .filter((d) => d.toUserId === userId)
       .reduce((sum, d) => sum + d.amount, 0);
 
-    return { iOwe: debtToPersons + pendingOwe, theyOwe: theyOweMe };
+    return { iOwe: debtToPersons + pendingOwe, theyOwe: theyOweMe, debts, debtToPersons, pendingOwe };
   }, [expenses, userId]);
+
+  // ── Settlement modal (global, cross-group) ──────────────────────────────────
+  const router = useRouter();
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleToUserId, setSettleToUserId] = useState<string>("");
+  const [settlementRaw, setSettlementRaw] = useState("");
+  const [settlementError, setSettlementError] = useState("");
+  const [isPendingSettle, startSettleTransition] = useTransition();
+
+  const settlementAmount = parseInt(settlementRaw.replace(/\D/g, "") || "0", 10);
+
+  function openSettle() {
+    const topDebt = debts.find((d) => d.fromUserId === userId);
+    setSettleToUserId(topDebt?.toUserId ?? "");
+    setSettlementRaw(String(iOwe));
+    setSettlementError("");
+    setSettleOpen(true);
+  }
+
+  function closeSettlement() {
+    if (isPendingSettle) return;
+    setSettleOpen(false);
+    setSettlementRaw("");
+    setSettlementError("");
+  }
+
+  function handleSettlementAmountChange(digits: string) {
+    setSettlementRaw(digits);
+    if (settlementError) setSettlementError("");
+  }
+
+  function handleSettle() {
+    if (settlementAmount <= 0) {
+      setSettlementError("Ingresa un monto válido");
+      return;
+    }
+    startSettleTransition(async () => {
+      const result = await createGlobalSettlement(userId, settleToUserId, settlementAmount);
+      if (result.error) {
+        setSettlementError(result.error);
+      } else {
+        setSettleOpen(false);
+        router.refresh();
+      }
+    });
+  }
 
   return (
     <div className={styles.page}>
@@ -219,48 +269,18 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
         )}
 
         {/* ── Balance card ──────────────────────────────────────────────── */}
-        <div className={styles.balanceCard}>
-          {/* Top row: month picker pill */}
-          <div className={styles.balanceTopRow}>
-            {showPicker ? (
-              <div className={styles.monthPill}>
-                <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <select
-                  className={styles.monthSelectOverlay}
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  aria-label="Seleccionar mes"
-                >
-                  {availableMonths.map((key) => (
-                    <option key={key} value={key}>{monthLabel(key)}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
-            )}
-          </div>
-
-          {/* Large amount */}
-          <span className={styles.balanceStatLabel}>TOTAL DEL MES ({totalExpenses})</span>
-          <p className={styles.balanceAmount}>{formatCLP(totalAmount)}</p>
-
-          <div className={styles.balanceDivider} />
-          <div className={styles.balanceRow}>
-            <div className={styles.balanceStat}>
-              <span className={styles.balanceStatLabel}>DEBES</span>
-              <span className={styles.balanceStatValue}>{formatCLP(Math.max(0, iOwe - theyOwe))}</span>
-            </div>
-            <div className={styles.balanceStat}>
-              <span className={styles.balanceStatLabel}>TE DEBEN</span>
-              <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
-            </div>
-          </div>
-
-        </div>
+        <BalanceCard
+          selectedMonth={selectedMonth}
+          availableMonths={availableMonths}
+          showPicker={showPicker}
+          onMonthChange={setSelectedMonth}
+          monthLabel={monthLabel}
+          expenseCount={totalExpenses}
+          totalAmount={totalAmount}
+          debes={Math.max(0, iOwe - theyOwe)}
+          teDeben={theyOwe}
+          onRegisterPago={Math.max(0, iOwe - theyOwe) > 0 ? openSettle : undefined}
+        />
 
         {/* ── Expense list ─────────────────────────────────────────────── */}
         <div className={styles.sectionHead}>
@@ -293,6 +313,23 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
           ))
         )}
       </div>
+
+      {/* ── Settlement modal ─────────────────────────────────────────────── */}
+      <SettlementModal
+        open={settleOpen}
+        onClose={closeSettlement}
+        subtitle={
+          debtToPersons > 0
+            ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
+            : `Gastos pendientes: ${formatCLP(pendingOwe)}`
+        }
+        amountRaw={settlementRaw}
+        onAmountChange={handleSettlementAmountChange}
+        maxAmount={iOwe}
+        error={settlementError}
+        pending={isPendingSettle}
+        onConfirm={handleSettle}
+      />
 
       {/* ── Notifications bottom sheet ────────────────────────────────── */}
       {notifOpen && (
