@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useTransition } from "react";
+import { useState, useEffect, useMemo, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ExpenseWithDetails, PendingInvitation } from "@/types";
@@ -8,15 +8,33 @@ import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
 import BalanceCard from "@/components/balance-card/balance-card";
 import SettlementModal from "@/components/settlement-modal/settlement-modal";
+import DebtListModal, { type DebtListItem, type CreditListItem } from "@/components/debt-list-modal/debt-list-modal";
 import { createGlobalSettlement } from "../actions";
 import styles from "./activity-list.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
 
+// useSyncExternalStore helpers — defined outside component for stable references
+function subscribeLastSeen() { return () => {}; }
+function getLastSeenServer(): string | null { return null; }
+function getLastSeenClient(): string | null {
+  try {
+    const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
+    if (ts) return ts;
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LS_LAST_SEEN_KEY, d);
+    return d;
+  } catch { return null; }
+}
+
 interface Props {
   expenses: ExpenseWithDetails[];
   userId: string;
   invitations: PendingInvitation[];
+}
+
+function firstWord(name: string): string {
+  return name?.split(" ")[0] ?? name;
 }
 
 function toMonthKey(d: Date) {
@@ -57,22 +75,18 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
   const [notifOpen, setNotifOpen] = useState(false);
 
   // ── Expense notifications (localStorage-based read tracking) ────────────
-  const [lastSeen, setLastSeen] = useState<Date>(() => {
-    if (typeof window === "undefined") return new Date(0);
-    try {
-      const ts = localStorage.getItem(LS_LAST_SEEN_KEY);
-      if (ts) return new Date(ts);
-      // First visit: treat last 7 days as potentially unread
-      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      localStorage.setItem(LS_LAST_SEEN_KEY, d.toISOString());
-      return d;
-    } catch { return new Date(0); }
-  });
+  // useSyncExternalStore: null on server, real localStorage value on client.
+  // No useEffect+setState needed, so react-hooks/set-state-in-effect doesn't trigger.
+  const storedTs = useSyncExternalStore(subscribeLastSeen, getLastSeenClient, getLastSeenServer);
+  const [lastSeenOverride, setLastSeenOverride] = useState<string | null>(null);
+  const lastSeenTs = lastSeenOverride ?? storedTs;
+  const notifHydrated = lastSeenTs !== null;
 
   // Notify when user owes money on an expense they didn't create.
   // Exception: pending expenses (no payer) always notify even if user created them.
-  const expenseNotifs = useMemo(() =>
-    expenses.filter((e) => {
+  const expenseNotifs = useMemo(() => {
+    const lastSeen = lastSeenTs ? new Date(lastSeenTs) : new Date(0);
+    return expenses.filter((e) => {
       if (new Date(e.created_at) <= lastSeen) return false;
       if (e.paid_by === null) {
         const s = e.splits.find((sp) => sp.user_id === userId);
@@ -81,11 +95,10 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
       if (e.paid_by === userId || e.created_by === userId) return false;
       const s = e.splits.find((sp) => sp.user_id === userId);
       return !!s && s.paid_amount < s.amount;
-    }).slice(0, 20),
-    [expenses, userId, lastSeen]
-  );
+    }).slice(0, 20);
+  }, [expenses, userId, lastSeenTs]);
 
-  const totalBadge = invitations.length + expenseNotifs.length;
+  const totalBadge = notifHydrated ? invitations.length + expenseNotifs.length : 0;
 
   function closeNotifs() {
     setNotifOpen(false);
@@ -93,7 +106,7 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     try {
       const now = new Date().toISOString();
       localStorage.setItem(LS_LAST_SEEN_KEY, now);
-      setLastSeen(new Date(now));
+      setLastSeenOverride(now);
     } catch { /* ignore */ }
   }
 
@@ -184,11 +197,54 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     return { iOwe: debtToPersons + pendingOwe, theyOwe: theyOweMe, debts, debtToPersons, pendingOwe };
   }, [expenses, userId]);
 
+  // Display names for debtors/creditors across all groups
+  const nameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of expenses) {
+      if (e.payer) map.set(e.payer.id, e.payer.display_name ?? e.payer.id);
+      for (const s of e.splits) {
+        if (s.profile) map.set(s.user_id, s.profile.display_name ?? s.user_id);
+      }
+    }
+    return map;
+  }, [expenses]);
+
+  // ── Debt list modal ──────────────────────────────────────────────────────────
+  const [debtListOpen, setDebtListOpen] = useState(false);
+
+  const debtItems: DebtListItem[] = useMemo(() => {
+    const items: DebtListItem[] = debts
+      .filter((d) => d.fromUserId === userId)
+      .map((d) => ({
+        id: d.toUserId,
+        name: firstWord(nameMap.get(d.toUserId) ?? d.toUserId),
+        amount: d.amount,
+        toUserId: d.toUserId,
+      }));
+    if (pendingOwe > 0) {
+      items.push({ id: "pending", name: "Pago pendiente", amount: pendingOwe, toUserId: "" });
+    }
+    return items;
+  }, [debts, pendingOwe, nameMap, userId]);
+
+  const creditItems: CreditListItem[] = useMemo(() =>
+    debts
+      .filter((d) => d.toUserId === userId)
+      .map((d) => ({
+        id: d.fromUserId,
+        name: firstWord(nameMap.get(d.fromUserId) ?? d.fromUserId),
+        amount: d.amount,
+      })),
+    [debts, nameMap, userId]
+  );
+
   // ── Settlement modal (global, cross-group) ──────────────────────────────────
   const router = useRouter();
   const [settleOpen, setSettleOpen] = useState(false);
   const [settleToUserId, setSettleToUserId] = useState<string>("");
   const [settlementRaw, setSettlementRaw] = useState("");
+  const [settlementMax, setSettlementMax] = useState(0);
+  const [settlementSubtitle, setSettlementSubtitle] = useState("");
   const [settlementError, setSettlementError] = useState("");
   const [isPendingSettle, startSettleTransition] = useTransition();
 
@@ -198,7 +254,27 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     const topDebt = debts.find((d) => d.fromUserId === userId);
     setSettleToUserId(topDebt?.toUserId ?? "");
     setSettlementRaw(String(iOwe));
+    setSettlementMax(iOwe);
+    setSettlementSubtitle(
+      debtToPersons > 0
+        ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
+        : `Gastos pendientes: ${formatCLP(pendingOwe)}`
+    );
     setSettlementError("");
+    setSettleOpen(true);
+  }
+
+  function openSettleForItem(item: DebtListItem) {
+    setSettleToUserId(item.toUserId);
+    setSettlementRaw(String(item.amount));
+    setSettlementMax(item.amount);
+    setSettlementSubtitle(
+      item.toUserId
+        ? `Pagar a ${item.name} · ${formatCLP(item.amount)}`
+        : `Gastos pendientes: ${formatCLP(item.amount)}`
+    );
+    setSettlementError("");
+    setDebtListOpen(false);
     setSettleOpen(true);
   }
 
@@ -279,7 +355,7 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
           totalAmount={totalAmount}
           debes={Math.max(0, iOwe - theyOwe)}
           teDeben={theyOwe}
-          onRegisterPago={Math.max(0, iOwe - theyOwe) > 0 ? openSettle : undefined}
+          onOpenDebtList={debtItems.length > 0 || creditItems.length > 0 ? () => setDebtListOpen(true) : undefined}
         />
 
         {/* ── Expense list ─────────────────────────────────────────────── */}
@@ -314,18 +390,24 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
         )}
       </div>
 
+      {/* ── Debt list modal ─────────────────────────────────────────────── */}
+      <DebtListModal
+        open={debtListOpen}
+        onClose={() => setDebtListOpen(false)}
+        items={debtItems}
+        creditItems={creditItems}
+        onPay={openSettleForItem}
+        onPayAll={debtItems.length > 1 ? () => { setDebtListOpen(false); openSettle(); } : undefined}
+      />
+
       {/* ── Settlement modal ─────────────────────────────────────────────── */}
       <SettlementModal
         open={settleOpen}
         onClose={closeSettlement}
-        subtitle={
-          debtToPersons > 0
-            ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
-            : `Gastos pendientes: ${formatCLP(pendingOwe)}`
-        }
+        subtitle={settlementSubtitle}
         amountRaw={settlementRaw}
         onAmountChange={handleSettlementAmountChange}
-        maxAmount={iOwe}
+        maxAmount={settlementMax}
         error={settlementError}
         pending={isPendingSettle}
         onConfirm={handleSettle}
@@ -410,7 +492,7 @@ function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: 
         <div className={styles.badgeRow}>
           <span className={styles.groupBadge}>{expense.group.name}</span>
           {expense.splits.length > 1 && (
-            <span className={styles.compartidoBadge}>Compartido</span>
+            <span className={styles.compartidoBadge}>Dividido</span>
           )}
         </div>
       </div>

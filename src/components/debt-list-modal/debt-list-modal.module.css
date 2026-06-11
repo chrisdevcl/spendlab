@@ -1,0 +1,126 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--page-padding);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+}
+
+.modal {
+  width: 100%;
+  background-color: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.modalTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 1rem;
+}
+
+.section {
+  margin-bottom: 1.25rem;
+}
+
+.sectionLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.625rem;
+}
+
+.empty {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-lg);
+}
+
+.rowInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.rowName {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.rowAmount {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.rowAmountPositive {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-positive);
+}
+
+.payBtn {
+  flex-shrink: 0;
+  padding: 0.5rem 0.875rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.payBtn:hover { opacity: 0.88; }
+
+.payAllBtn {
+  width: 100%;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.payAllBtn:hover { opacity: 0.9; }
+
+.closeBtn {
+  width: 100%;
+  padding: 1rem;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.closeBtn:hover { background: var(--color-bg-muted); }

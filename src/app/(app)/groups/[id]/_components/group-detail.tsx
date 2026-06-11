@@ -17,6 +17,7 @@ import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
 import BalanceCard from "@/components/balance-card/balance-card";
 import SettlementModal from "@/components/settlement-modal/settlement-modal";
+import DebtListModal, { type DebtListItem, type CreditListItem } from "@/components/debt-list-modal/debt-list-modal";
 import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction, renameGroup as renameGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
@@ -216,6 +217,8 @@ export default function GroupDetail({
   const [settleOpen, setSettleOpen] = useState(false);
   const [settleGroupToUserId, setSettleGroupToUserId] = useState<string>("");
   const [settlementRaw, setSettlementRaw] = useState("");
+  const [settlementMax, setSettlementMax] = useState(0);
+  const [settlementSubtitle, setSettlementSubtitle] = useState("");
   const [settlementError, setSettlementError] = useState("");
   const [isPendingSettle, startSettleTransition] = useTransition();
 
@@ -225,7 +228,27 @@ export default function GroupDetail({
     const topDebt = debts.find((d) => d.fromUserId === userId);
     setSettleGroupToUserId(topDebt?.toUserId ?? "");
     setSettlementRaw(String(iOwe));
+    setSettlementMax(iOwe);
+    setSettlementSubtitle(
+      debtToPersons > 0
+        ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
+        : `Gastos pendientes: ${formatCLP(pendingOwe)}`
+    );
     setSettlementError("");
+    setSettleOpen(true);
+  }
+
+  function openSettleForItem(item: DebtListItem) {
+    setSettleGroupToUserId(item.toUserId);
+    setSettlementRaw(String(item.amount));
+    setSettlementMax(item.amount);
+    setSettlementSubtitle(
+      item.toUserId
+        ? `Pagar a ${item.name} · ${formatCLP(item.amount)}`
+        : `Gastos pendientes: ${formatCLP(item.amount)}`
+    );
+    setSettlementError("");
+    setDebtListOpen(false);
     setSettleOpen(true);
   }
 
@@ -437,20 +460,38 @@ export default function GroupDetail({
 
   // Split amounts the user owes for pending expenses (paid_by = null).
   // These have no creditor so simplifyDebts won't pick them up.
-  const pendingOwe = useMemo(() =>
-    expenses
-      .filter((e) => e.paid_by === null)
-      .flatMap((e) => e.splits)
-      .filter((s) => s.user_id === userId)
-      .reduce((sum, s) => sum + Math.max(0, s.amount - (s.paid_amount ?? 0)), 0),
-    [expenses, userId]
-  );
+  const pendingOwe = expenses
+    .filter((e) => e.paid_by === null)
+    .flatMap((e) => e.splits)
+    .filter((s) => s.user_id === userId)
+    .reduce((sum, s) => sum + Math.max(0, s.amount - (s.paid_amount ?? 0)), 0);
 
   const debtToPersons = debts.filter((d) => d.fromUserId === userId).reduce((s, d) => s + d.amount, 0);
   const iOwe    = debtToPersons + pendingOwe;
   const theyOwe = debts.filter((d) => d.toUserId   === userId).reduce((s, d) => s + d.amount, 0);
 
-  const [debtsExpanded, setDebtsExpanded] = useState(false);
+  // ── Debt list modal ──────────────────────────────────────────────────────────
+  const [debtListOpen, setDebtListOpen] = useState(false);
+
+  const debtItems: DebtListItem[] = debts
+    .filter((d) => d.fromUserId === userId)
+    .map((d) => ({
+      id: d.toUserId,
+      name: firstWord(d.toProfile?.display_name ?? d.toUserId),
+      amount: d.amount,
+      toUserId: d.toUserId,
+    }));
+  if (pendingOwe > 0) {
+    debtItems.push({ id: "pending", name: "Pago pendiente", amount: pendingOwe, toUserId: "" });
+  }
+
+  const creditItems: CreditListItem[] = debts
+    .filter((d) => d.toUserId === userId)
+    .map((d) => ({
+      id: d.fromUserId,
+      name: firstWord(d.fromProfile?.display_name ?? d.fromUserId),
+      amount: d.amount,
+    }));
 
   const groupSubtitle = (() => {
     if (!multiMember) return "Solo tú";
@@ -544,14 +585,7 @@ export default function GroupDetail({
                     totalAmount={monthTotal}
                     debes={iOwe}
                     teDeben={theyOwe}
-                    debts={debts.map((debt) => ({
-                      fromName: firstWord(debt.fromProfile?.display_name ?? debt.fromUserId),
-                      toName: firstWord(debt.toProfile?.display_name ?? debt.toUserId),
-                      amount: debt.amount,
-                    }))}
-                    expanded={debtsExpanded}
-                    onToggleExpand={() => setDebtsExpanded((p) => !p)}
-                    onRegisterPago={iOwe > 0 ? openSettle : undefined}
+                    onOpenDebtList={debtItems.length > 0 || creditItems.length > 0 ? () => setDebtListOpen(true) : undefined}
                   />
                 )}
 
@@ -659,18 +693,24 @@ export default function GroupDetail({
                 </div>
             )}
 
+            {/* ── Debt list modal ──────────────────────────────────────────────── */}
+            <DebtListModal
+                open={debtListOpen}
+                onClose={() => setDebtListOpen(false)}
+                items={debtItems}
+                creditItems={creditItems}
+                onPay={openSettleForItem}
+                onPayAll={debtItems.length > 1 ? () => { setDebtListOpen(false); openSettle(); } : undefined}
+            />
+
             {/* ── Settlement modal ─────────────────────────────────────────────── */}
             <SettlementModal
                 open={settleOpen}
                 onClose={closeSettlement}
-                subtitle={
-                    debtToPersons > 0
-                        ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
-                        : `Gastos pendientes: ${formatCLP(pendingOwe)}`
-                }
+                subtitle={settlementSubtitle}
                 amountRaw={settlementRaw}
                 onAmountChange={handleSettlementAmountChange}
-                maxAmount={iOwe}
+                maxAmount={settlementMax}
                 error={settlementError}
                 pending={isPendingSettle}
                 onConfirm={handleSettle}

@@ -189,7 +189,7 @@ export default function ExpenseDetail({
           <div className={styles.heroBadgeRow}>
             <span className={styles.groupBadge}>{expense.group.name}</span>
             {!isPersonal && !isPendingExpense && (
-              <span className={styles.typeBadgeShared}>Compartido</span>
+              <span className={styles.typeBadgeShared}>Dividido</span>
             )}
           </div>
         </div>
