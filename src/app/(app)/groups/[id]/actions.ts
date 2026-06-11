@@ -12,6 +12,7 @@ import {
   inviteMember as inviteMemberService,
   deleteGroup as deleteGroupService,
   createGroup as createGroupService,
+  updateGroup as updateGroupService,
 } from "@/lib/services/groups.service";
 import { sendInvitationEmail } from "@/lib/email/invitation";
 
@@ -98,6 +99,30 @@ export async function deleteGroup(
   const ok = await deleteGroupService(groupId);
   if (!ok) return { error: "Error al eliminar el grupo. Intenta de nuevo." };
 
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function renameGroup(
+  groupId: string,
+  name: string
+): Promise<{ error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "El nombre no puede estar vacío" };
+  if (trimmed.length > 60) return { error: "Máximo 60 caracteres" };
+
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await updateGroupService(groupId, trimmed);
+  if (error) return { error: "Error al renombrar el grupo. Intenta de nuevo." };
+
+  revalidatePath(`/groups/${groupId}`);
   revalidatePath("/groups");
   return {};
 }

@@ -15,7 +15,7 @@ import type { GroupWithMembers, ExpenseWithDetails, PendingInvitation, AcceptedI
 import type { Profile } from "@/types/database.types";
 import { formatCLP } from "@/lib/utils/currency";
 import { computeGlobalBalance } from "@/lib/utils/balance";
-import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction } from "../actions";
+import { createSettlement, inviteMemberToGroup, deleteGroup as deleteGroupAction, acceptInvitation, rejectInvitation, createGroup as createGroupAction, renameGroup as renameGroupAction } from "../actions";
 import styles from "./group-detail.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
@@ -405,6 +405,42 @@ export default function GroupDetail({
     });
   }
 
+  // ── Rename group ───────────────────────────────────────────────────────────
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTargetGroupId, setRenameTargetGroupId] = useState(group.id);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState("");
+  const [isPendingRename, startRenameTransition] = useTransition();
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renameOpen) {
+      const t = setTimeout(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }, 60);
+      return () => clearTimeout(t);
+    }
+  }, [renameOpen]);
+
+  function openRename(targetId: string, currentName: string) {
+    setRenameTargetGroupId(targetId);
+    setRenameValue(currentName);
+    setRenameError("");
+    setRenameOpen(true);
+  }
+
+  function handleRename() {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenameError("El nombre no puede estar vacío"); return; }
+    startRenameTransition(async () => {
+      const result = await renameGroupAction(renameTargetGroupId, trimmed);
+      if (result.error) {
+        setRenameError(result.error);
+      } else {
+        setRenameOpen(false);
+        router.refresh();
+      }
+    });
+  }
+
   // ── Balance display values ─────────────────────────────────────────────────
   const monthTotal = filteredExpenses.reduce((s, e) => s + e.amount, 0);
 
@@ -543,7 +579,7 @@ export default function GroupDetail({
                       )}
                     </div>
 
-                    <span className={styles.balanceDebtLabel}>TOTAL DEL MES</span>
+                    <span className={styles.balanceDebtLabel}>TOTAL DEL MES ({filteredExpenses.length})</span>
                     <p className={styles.balanceAmount}>
                       {formatCLP(monthTotal)}
                     </p>
@@ -857,6 +893,18 @@ export default function GroupDetail({
                                         </button>
                                         {g.created_by === userId && (
                                             <button
+                                                className={styles.selectorActionBtn}
+                                                onClick={(e) => { e.stopPropagation(); setGroupSelectorOpen(false); openRename(g.id, g.name); }}
+                                                aria-label={`Renombrar ${g.name}`}
+                                            >
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M10.5 2.5a1.5 1.5 0 0 1 2.121 0l.879.879a1.5 1.5 0 0 1 0 2.121L5.5 13.5H2.5v-3L10.5 2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                                                    <path d="M8.5 4.5l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                                </svg>
+                                            </button>
+                                        )}
+                                        {g.created_by === userId && (
+                                            <button
                                                 className={styles.selectorActionBtnDanger}
                                                 onClick={(e) => { e.stopPropagation(); setGroupSelectorOpen(false); openDeleteGroup(g.id, g.name); }}
                                                 aria-label={`Eliminar ${g.name}`}
@@ -912,6 +960,39 @@ export default function GroupDetail({
                             <button className={styles.btnCancel} onClick={() => setCreateGroupOpen(false)} disabled={isPendingCreateGroup}>Cancelar</button>
                             <button className={styles.btnConfirm} onClick={handleCreateGroup} disabled={isPendingCreateGroup || !createGroupName.trim()}>
                                 {isPendingCreateGroup ? "Creando…" : "Crear"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Rename group modal ───────────────────────────────────────────── */}
+            {renameOpen && (
+                <div
+                    className={styles.backdrop}
+                    onClick={() => { if (!isPendingRename) setRenameOpen(false); }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Renombrar grupo"
+                >
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <p className={styles.modalTitle}>Renombrar grupo</p>
+                        <input
+                            ref={renameInputRef}
+                            className={styles.modalInput}
+                            type="text"
+                            placeholder="Nombre del grupo"
+                            value={renameValue}
+                            maxLength={60}
+                            disabled={isPendingRename}
+                            onChange={(e) => { setRenameValue(e.target.value); if (renameError) setRenameError(""); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") handleRename(); }}
+                        />
+                        {renameError && <p className={styles.modalError}>{renameError}</p>}
+                        <div className={styles.modalActions}>
+                            <button className={styles.btnCancel} onClick={() => setRenameOpen(false)} disabled={isPendingRename}>Cancelar</button>
+                            <button className={styles.btnConfirm} onClick={handleRename} disabled={isPendingRename || !renameValue.trim()}>
+                                {isPendingRename ? "Guardando…" : "Guardar"}
                             </button>
                         </div>
                     </div>

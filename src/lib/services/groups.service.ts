@@ -271,6 +271,27 @@ export async function acceptInvitation(
   }
 }
 
+export async function updateGroup(
+  groupId: string,
+  name: string
+): Promise<{ error: string | null }> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("groups")
+      .update({ name })
+      .eq("id", groupId);
+    if (error) {
+      console.error("[updateGroup] error:", error.message);
+      return { error: error.message };
+    }
+    return { error: null };
+  } catch (err) {
+    console.error("[updateGroup] unexpected error:", err);
+    return { error: String(err) };
+  }
+}
+
 export async function deleteGroup(groupId: string): Promise<boolean> {
   try {
     const supabase = await createClient();

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import type { ExpenseWithDetails, PendingInvitation } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
+import { computeGlobalBalance } from "@/lib/utils/balance";
 import styles from "./activity-list.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
@@ -149,6 +150,36 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     return s + (userSplit?.amount ?? e.amount);
   }, 0);
 
+  // Balance total across all groups — same logic as the group card
+  const { iOwe, theyOwe } = useMemo(() => {
+    const allUserIds = (() => {
+      const ids = new Set<string>([userId]);
+      for (const e of expenses) {
+        if (e.paid_by) ids.add(e.paid_by);
+        for (const s of e.splits) ids.add(s.user_id);
+      }
+      return [...ids];
+    })();
+
+    const { debts } = computeGlobalBalance(expenses, userId, allUserIds);
+
+    const pendingOwe = expenses
+      .filter((e) => e.paid_by === null)
+      .flatMap((e) => e.splits)
+      .filter((s) => s.user_id === userId)
+      .reduce((sum, s) => sum + Math.max(0, s.amount - (s.paid_amount ?? 0)), 0);
+
+    const debtToPersons = debts
+      .filter((d) => d.fromUserId === userId)
+      .reduce((sum, d) => sum + d.amount, 0);
+
+    const theyOweMe = debts
+      .filter((d) => d.toUserId === userId)
+      .reduce((sum, d) => sum + d.amount, 0);
+
+    return { iOwe: debtToPersons + pendingOwe, theyOwe: theyOweMe };
+  }, [expenses, userId]);
+
   return (
     <div className={styles.page}>
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -214,10 +245,20 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
           </div>
 
           {/* Large amount */}
+          <span className={styles.balanceStatLabel}>TOTAL DEL MES ({totalExpenses})</span>
           <p className={styles.balanceAmount}>{formatCLP(totalAmount)}</p>
-          <p className={styles.balanceEyebrow}>
-            {totalExpenses} {totalExpenses === 1 ? "gasto" : "gastos"}
-          </p>
+
+          <div className={styles.balanceDivider} />
+          <div className={styles.balanceRow}>
+            <div className={styles.balanceStat}>
+              <span className={styles.balanceStatLabel}>DEBES</span>
+              <span className={styles.balanceStatValue}>{formatCLP(Math.max(0, iOwe - theyOwe))}</span>
+            </div>
+            <div className={styles.balanceStat}>
+              <span className={styles.balanceStatLabel}>TE DEBEN</span>
+              <span className={styles.balanceStatValue}>{formatCLP(theyOwe)}</span>
+            </div>
+          </div>
 
         </div>
 
