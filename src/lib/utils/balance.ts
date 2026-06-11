@@ -26,7 +26,7 @@ export function computeGroupBalance(
     }
 
     const expense = expenseMap.get(split.expense_id);
-    if (!expense || expense.paid_by === null) continue;
+    if (!expense) continue;
 
     if (split.user_id === currentUserId && split.user_id !== expense.paid_by && split.paid_amount > 0) {
       // User paid back part of their debt → balance improves
