@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import { calculateEqualSplits } from "@/lib/utils/splits";
 import type { Expense, ExpenseSplit, Settlement } from "@/types/database.types";
 import type { ExpenseWithDetails } from "@/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ─── Read ────────────────────────────────────────────────────────────────────
 
@@ -291,88 +290,6 @@ export async function getAllUserExpenses(
   }
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-/**
- * After creating a shared expense, auto-offset opposing debts between the same
- * two users in the same group. Only applies to shared expenses (with a payer).
- * Pending expenses are never auto-netted.
- */
-async function autoNetSplits(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: SupabaseClient<any>,
-  groupId: string,
-  newExpenseId: string,
-  paidBy: string,
-  newSplits: { userId: string; amount: number }[]
-): Promise<void> {
-  const nonPayerSplits = newSplits.filter((s) => s.userId !== paidBy);
-  if (!nonPayerSplits.length) return;
-
-  for (const newSplit of nonPayerSplits) {
-    const debtorId  = newSplit.userId; // owes paidBy in the new expense
-    const creditorId = paidBy;          // is owed in the new expense
-
-    // Find shared expenses in this group where debtorId paid (so creditorId owes debtorId)
-    const { data: opposingExpenses } = await supabase
-      .from("expenses")
-      .select("id")
-      .eq("group_id", groupId)
-      .eq("paid_by", debtorId)
-      .neq("id", newExpenseId);
-
-    const opposingIds = (opposingExpenses ?? []).map((e) => e.id);
-    if (!opposingIds.length) continue;
-
-    // Get creditor's unpaid splits in those expenses
-    const { data: opposingSplits } = await supabase
-      .from("expense_splits")
-      .select("id, expense_id, amount, paid_amount")
-      .eq("user_id", creditorId)
-      .in("expense_id", opposingIds);
-
-    const unpaidOpposing = (opposingSplits ?? []).filter((s) => s.paid_amount < s.amount);
-    if (!unpaidOpposing.length) continue;
-
-    // Get the newly created split for this debtor to know its current paid_amount
-    const { data: newSplitRow } = await supabase
-      .from("expense_splits")
-      .select("id, amount, paid_amount")
-      .eq("expense_id", newExpenseId)
-      .eq("user_id", debtorId)
-      .single();
-
-    if (!newSplitRow) continue;
-
-    let newRemaining = newSplitRow.amount - newSplitRow.paid_amount;
-
-    for (const opposing of unpaidOpposing) {
-      if (newRemaining <= 0) break;
-
-      const opposingRemaining = opposing.amount - opposing.paid_amount;
-      const toNet = Math.min(newRemaining, opposingRemaining);
-      if (toNet <= 0) continue;
-
-      const now = new Date().toISOString();
-
-      // Offset creditor's debt in old expense
-      await Promise.all([
-        supabase.from("expense_splits").update({ paid_amount: opposing.paid_amount + toNet }).eq("id", opposing.id),
-        supabase.from("split_payments").insert({ split_id: opposing.id, amount: toNet, paid_at: now }),
-      ]);
-
-      // Offset debtor's debt in new expense
-      const newPaidAmount = newSplitRow.amount - newRemaining + toNet;
-      await Promise.all([
-        supabase.from("expense_splits").update({ paid_amount: newPaidAmount }).eq("id", newSplitRow.id),
-        supabase.from("split_payments").insert({ split_id: newSplitRow.id, amount: toNet, paid_at: now }),
-      ]);
-
-      newRemaining -= toNet;
-    }
-  }
-}
-
 // ─── Write ───────────────────────────────────────────────────────────────────
 
 export async function createExpense(
@@ -421,13 +338,6 @@ export async function createExpense(
       console.error("[createExpense] splits error:", sErr.message);
       await supabase.from("expenses").delete().eq("id", expense.id);
       return null;
-    }
-
-    // Auto-net opposing debts between shared expenses (not pending).
-    // For each non-payer split in this expense, check if the payer has an
-    // unpaid split going the other way and offset them automatically.
-    if (paidBy !== null) {
-      await autoNetSplits(supabase, groupId, expense.id, paidBy, splits);
     }
 
     return expense;
