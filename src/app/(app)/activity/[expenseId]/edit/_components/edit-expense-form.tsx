@@ -82,15 +82,6 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
     : members.map((m) => m.id);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialSelected));
 
-  // Was this expense already personal (no real division)?
-  const initialIsShared = expense.paid_by === null
-    ? expense.splits.length > 1
-    : !(expense.splits.length === 0 || expense.splits.every((s) => s.user_id === expense.paid_by));
-  const [isShared, setIsShared] = useState(initialIsShared);
-
-  // A pending (no payer) expense can't be "personal" — force shared.
-  const effectiveIsShared = paidBy === null ? true : isShared;
-
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -128,9 +119,7 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
     const effectivePaidBy = isSolo ? (members[0]?.id ?? userId) : paidBy;
     const memberIds = isSolo
       ? members.map((m) => m.id)
-      : !effectiveIsShared
-        ? [effectivePaidBy as string]
-        : Array.from(selectedIds);
+      : Array.from(selectedIds);
 
     startTransition(async () => {
       const result = await updateExpense(
@@ -302,64 +291,37 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
               </div>
             </div>
 
-            {/* Tipo de gasto */}
-            {paidBy !== null && (
-              <div className={styles.formSection}>
-                <p className={styles.sectionLabel}>Tipo de gasto</p>
-                <div className={styles.payerGrid}>
-                  <button
-                    className={`${styles.payerBtn} ${!isShared ? styles.payerBtnActive : ""}`}
-                    onClick={() => setIsShared(false)}
-                    disabled={isPending}
-                  >
-                    Personal
-                  </button>
-                  <button
-                    className={`${styles.payerBtn} ${isShared ? styles.payerBtnActive : ""}`}
-                    onClick={() => setIsShared(true)}
-                    disabled={isPending}
-                  >
-                    Dividir
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Dividir entre */}
-            {effectiveIsShared ? (
-              <div className={styles.formSection}>
-                <p className={styles.sectionLabel}>Dividir entre</p>
-                <div className={styles.memberList}>
-                  {members.map((m) => {
-                    const checked  = selectedIds.has(m.id);
-                    const shareAmt = splits[m.id];
-                    const initials = (m.display_name[0] ?? "?").toUpperCase();
-                    return (
-                      <div
-                        key={m.id}
-                        className={styles.memberRow}
-                        onClick={() => !isPending && toggleMember(m.id)}
-                      >
-                        <div className={styles.memberAvatar}>{initials}</div>
-                        <p className={styles.memberName}>{m.display_name.split(" ")[0]}</p>
-                        <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
-                          {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
-                        </p>
-                        <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
-                          {checked && (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </div>
+            <div className={styles.formSection}>
+              <p className={styles.sectionLabel}>Dividir entre</p>
+              <div className={styles.memberList}>
+                {members.map((m) => {
+                  const checked  = selectedIds.has(m.id);
+                  const shareAmt = splits[m.id];
+                  const initials = (m.display_name[0] ?? "?").toUpperCase();
+                  return (
+                    <div
+                      key={m.id}
+                      className={styles.memberRow}
+                      onClick={() => !isPending && toggleMember(m.id)}
+                    >
+                      <div className={styles.memberAvatar}>{initials}</div>
+                      <p className={styles.memberName}>{m.display_name.split(" ")[0]}</p>
+                      <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
+                        {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
+                      </p>
+                      <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
+                        {checked && (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            ) : (
-              <p className={styles.personalNote}>Gasto personal — sin división ni deudas.</p>
-            )}
+            </div>
           </>
         )}
 
