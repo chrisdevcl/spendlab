@@ -552,6 +552,25 @@ CREATE POLICY "splits: owner can update"
   USING  (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- Quien creó o pagó el gasto puede recalcular los splits de otros
+-- miembros al editar el gasto (monto, división, participantes).
+CREATE POLICY "splits: expense owner can update"
+  ON expense_splits FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM expenses e
+      WHERE  e.id = expense_id
+        AND  (e.paid_by = auth.uid() OR e.created_by = auth.uid())
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM expenses e
+      WHERE  e.id = expense_id
+        AND  (e.paid_by = auth.uid() OR e.created_by = auth.uid())
+    )
+  );
+
 -- Solo el que pagó el gasto puede borrar sus splits.
 CREATE POLICY "splits: creator or payer can delete"
   ON expense_splits FOR DELETE TO authenticated

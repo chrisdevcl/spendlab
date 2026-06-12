@@ -143,6 +143,7 @@ export default function ExpenseDetail({
   }
 
   const canDelete = expense.paid_by === userId || expense.created_by === userId;
+  const canEdit = expense.created_by === userId;
 
   return (
     <div className={styles.page}>
@@ -164,18 +165,33 @@ export default function ExpenseDetail({
           </svg>
         </button>
         <span className={styles.headerTitle}>Detalle del gasto</span>
-        {canDelete ? (
-          <button
-            className={styles.iconBtnDanger}
-            onClick={() => setDeleteOpen(true)}
-            aria-label="Eliminar gasto"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M3 5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              <path d="M7 5V3h4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M5 5l.75 10.5h6.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+        {canEdit || canDelete ? (
+          <div className={styles.headerActions}>
+            {canEdit && (
+              <button
+                className={styles.iconBtn}
+                onClick={() => router.push(`/activity/${expense.id}/edit`)}
+                aria-label="Editar gasto"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M11.5 2.5l3 3-8.5 8.5H3v-3l8.5-8.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+            {canDelete && (
+              <button
+                className={styles.iconBtnDanger}
+                onClick={() => setDeleteOpen(true)}
+                aria-label="Eliminar gasto"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M3 5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M7 5V3h4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 5l.75 10.5h6.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </div>
         ) : (
           <div style={{ width: 38 }} />
         )}

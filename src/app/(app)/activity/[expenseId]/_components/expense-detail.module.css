@@ -36,6 +36,13 @@
   color: var(--color-negative);
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .headerTitle {
   font-size: 1.0625rem;
   font-weight: 700;

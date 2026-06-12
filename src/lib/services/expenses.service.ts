@@ -348,6 +348,107 @@ export async function createExpense(
 }
 
 /**
+ * Updates an expense's core fields and recalculates its splits to match
+ * the new amount and participant list. Existing splits keep their `id`
+ * (and `paid_amount`, capped to the new amount) so payment history is
+ * preserved; removed participants have their split (and payment history)
+ * deleted, and new participants get a fresh split with paid_amount 0.
+ */
+export async function updateExpense(
+  expenseId: string,
+  groupId: string,
+  paidBy: string | null,
+  amount: number,
+  description: string,
+  memberIds: string[],
+  date: string
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+
+    const { error: eErr } = await supabase
+      .from("expenses")
+      .update({
+        group_id: groupId,
+        paid_by: paidBy,
+        amount,
+        description,
+        expense_date: date,
+      })
+      .eq("id", expenseId);
+
+    if (eErr) {
+      console.error("[updateExpense] expense update error:", eErr.message);
+      return false;
+    }
+
+    const { data: currentSplits, error: sErr } = await supabase
+      .from("expense_splits")
+      .select("id, user_id, paid_amount")
+      .eq("expense_id", expenseId);
+
+    if (sErr) {
+      console.error("[updateExpense] splits read error:", sErr.message);
+      return false;
+    }
+
+    const remaining = new Map((currentSplits ?? []).map((s) => [s.user_id, s]));
+    const newSplits = calculateEqualSplits(amount, memberIds);
+
+    const toInsert: { expense_id: string; user_id: string; amount: number; paid_amount: number }[] = [];
+    const toUpdate: { id: string; amount: number; paid_amount: number }[] = [];
+
+    for (const split of newSplits) {
+      const existing = remaining.get(split.userId);
+      if (existing) {
+        toUpdate.push({
+          id: existing.id,
+          amount: split.amount,
+          paid_amount: Math.min(existing.paid_amount, split.amount),
+        });
+        remaining.delete(split.userId);
+      } else {
+        toInsert.push({
+          expense_id: expenseId,
+          user_id: split.userId,
+          amount: split.amount,
+          paid_amount: 0,
+        });
+      }
+    }
+
+    // Anything left in `remaining` belongs to members no longer in the split.
+    const toDeleteIds = [...remaining.values()].map((s) => s.id);
+
+    const results = await Promise.all([
+      toInsert.length
+        ? supabase.from("expense_splits").insert(toInsert)
+        : Promise.resolve({ error: null }),
+      ...toUpdate.map((u) =>
+        supabase
+          .from("expense_splits")
+          .update({ amount: u.amount, paid_amount: u.paid_amount })
+          .eq("id", u.id)
+      ),
+      toDeleteIds.length
+        ? supabase.from("expense_splits").delete().in("id", toDeleteIds)
+        : Promise.resolve({ error: null }),
+    ]);
+
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      console.error("[updateExpense] splits write error:", failed.error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[updateExpense] unexpected error:", err);
+    return false;
+  }
+}
+
+/**
  * Distributes a payment from `paidBy` to `paidTo` across all unpaid splits
  * where paidBy is the debtor and paidTo is the expense payer.
  * Applies oldest-first. Returns total amount actually applied.
