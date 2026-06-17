@@ -2,8 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  registerPendingPayment as servicePendingPayment,
+} from "@/lib/services/expenses.service";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+function revalidate() {
+  revalidatePath("/saldos");
+  revalidatePath("/activity");
+}
 
 export async function registerPayment(
   paidToUserId: string,
@@ -25,7 +33,20 @@ export async function registerPayment(
 
   if (error) return { applied: 0, error: error.message };
 
-  revalidatePath("/saldos");
-  revalidatePath("/activity");
+  revalidate();
   return { applied: amount };
+}
+
+export async function registerPendingPaymentAction(
+  amount: number
+): Promise<{ applied: number; error?: string }> {
+  if (DEV_MODE) return { applied: amount };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { applied: 0, error: "No autenticado" };
+
+  const result = await servicePendingPayment(null, user.id, amount);
+  if (!result.error) revalidate();
+  return result;
 }

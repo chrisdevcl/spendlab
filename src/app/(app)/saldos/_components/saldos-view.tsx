@@ -10,9 +10,10 @@ import { IconBtn } from "@/components/icon-btn/icon-btn";
 import { NewGroupModal } from "@/components/modals/new-group-modal";
 import { GroupPickerModal } from "@/components/modals/group-picker-modal";
 import { NotificationsModal } from "@/components/modals/notifications-modal";
-import { registerPayment } from "../actions";
+import { registerPayment, registerPendingPaymentAction } from "../actions";
 import type { ExpenseWithDetails, PendingInvitation } from "@/types";
 import type { Profile, Settlement } from "@/types/database.types";
+import BalanceCard from "@/components/balance-card/balance-card";
 import styles from "./saldos-view.module.css";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -75,16 +76,25 @@ function computeTransactions(
   for (const exp of expenses) {
     if (exp.paid_by === otherId) {
       const mine = exp.splits.find((s) => s.user_id === userId);
-      if (mine && mine.amount > 0)
-        txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -mine.amount });
+      if (mine) {
+        const unpaid = mine.amount - (mine.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -unpaid });
+      }
     } else if (exp.paid_by === userId) {
       const theirs = exp.splits.find((s) => s.user_id === otherId);
-      if (theirs && theirs.amount > 0)
-        txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: theirs.amount });
+      if (theirs) {
+        const unpaid = theirs.amount - (theirs.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: unpaid });
+      }
     } else if (exp.paid_by === null && otherId === CAJA_COMUN_ID) {
       const mine = exp.splits.find((s) => s.user_id === userId);
-      if (mine && mine.amount > 0)
-        txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -mine.amount });
+      if (mine) {
+        const unpaid = mine.amount - (mine.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -unpaid });
+      }
     }
   }
   return txs.sort((a, b) => b.date.localeCompare(a.date));
@@ -277,17 +287,19 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     const amount = parseInt(amountRaw.replace(/\D/g, "") || "0", 10);
     if (amount <= 0) { setPayError("Ingresa un monto válido"); return; }
     startTransition(async () => {
-      const result = await registerPayment(selectedId, amount);
+      const result = selectedId === CAJA_COMUN_ID
+        ? await registerPendingPaymentAction(amount)
+        : await registerPayment(selectedId, amount);
       if (result.error) { setPayError(result.error); return; }
       closePay();
       router.refresh();
     });
   }
 
-  const statusChipClass =
-    monthlyBalance > 0 ? styles.statusChipPos :
-    monthlyBalance < 0 ? styles.statusChipNeg :
-    styles.statusChipNeutral;
+  const debtSign: "positive" | "negative" | "neutral" =
+    monthlyBalance > 0 ? "positive" :
+    monthlyBalance < 0 ? "negative" :
+    "neutral";
 
   if (people.length === 0 && !hasCajaComun) {
     return (
@@ -358,10 +370,19 @@ export default function SaldosView({ people, expenses, settlements, invitations,
             className={styles.personSelectorBtn}
             onClick={() => setPersonPickerOpen(true)}
           >
-            <svg className={styles.personSelectorIcon} width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.4"/>
-              <path d="M2 14c0-3 2.686-4.5 6-4.5s6 1.5 6 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
+            {selectedId === CAJA_COMUN_ID ? (
+              <svg className={styles.personSelectorIcon} width="16" height="16" viewBox="0 0 20 20" fill="none">
+                <circle cx="6" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M1 17c0-3 2.2-4.5 5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                <circle cx="14" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M19 17c0-3-2.2-4.5-5-4.5s-5 1.5-5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              <svg className={styles.personSelectorIcon} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M2 14c0-3 2.686-4.5 6-4.5s6 1.5 6 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            )}
             <span className={styles.personSelectorName}>{selectedPerson?.display_name ?? "Seleccionar persona"}</span>
             <svg className={styles.personSelectorChevron} width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -370,38 +391,27 @@ export default function SaldosView({ people, expenses, settlements, invitations,
         )}
 
         {/* Balance card */}
-        <div className={`${styles.balanceCard} ${styles.cardNeutral}`}>
-          <div className={styles.cardTopRow}>
-            {showPicker ? (
-              <div className={styles.monthPill}>
-                <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <select className={styles.monthSelectOverlay} value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} aria-label="Seleccionar mes">
-                  {availableMonths.map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
-                </select>
-              </div>
-            ) : (
-              <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
-            )}
-          </div>
-          <span className={styles.cardLabel}>TOTAL DEL MES</span>
-          <span className={styles.cardChip}>
-            {filteredTxs.length} {filteredTxs.length === 1 ? "MOVIMIENTO" : "MOVIMIENTOS"}
-          </span>
-          <p className={styles.cardAmount}>
-            {formatCLP(Math.abs(monthlyBalance))}
-          </p>
-          {filteredTxs.length > 0 && (
-            <span className={`${styles.statusChip} ${statusChipClass}`}>
-              {monthlyBalance > 0 ? "TE DEBE" : monthlyBalance < 0 ? "LE DEBES" : "TODO AL DÍA"}
-            </span>
-          )}
-        </div>
+        <BalanceCard
+          selectedMonth={selectedMonth}
+          availableMonths={availableMonths}
+          showPicker={showPicker}
+          onMonthChange={setSelectedMonth}
+          monthLabel={monthLabel}
+          expenseCount={filteredTxs.length}
+          totalAmount={Math.abs(monthlyBalance)}
+          countSuffix="MOVIMIENTO"
+          debtLabel={
+            filteredTxs.length > 0
+              ? monthlyBalance > 0 ? "TE DEBE"
+              : monthlyBalance < 0 ? "LE DEBES"
+              : "TODO AL DÍA"
+              : undefined
+          }
+          debtSign={debtSign}
+        />
 
-        {/* Registrar pago — solo cuando yo le debo (balance total) y no es Caja común */}
-        {iOweTotal && selectedId !== CAJA_COMUN_ID && (
+        {/* Registrar pago — cuando el balance total es negativo */}
+        {iOweTotal && (
           <button className={styles.payBtn} onClick={openPay}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
               <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -509,7 +519,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
       <SettlementModal
         open={payOpen}
         onClose={closePay}
-        subtitle={`A ${selectedPerson?.display_name ?? "…"}`}
+        subtitle={selectedId === CAJA_COMUN_ID ? "Gastos pendientes de pago" : `A ${selectedPerson?.display_name ?? "…"}`}
         amountRaw={amountRaw}
         onAmountChange={setAmountRaw}
         maxAmount={Math.abs(totalBalance)}

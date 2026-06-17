@@ -11,6 +11,9 @@ interface BalanceCardProps {
   monthLabel: (key: string) => string;
   expenseCount: number;
   totalAmount: number;
+  countSuffix?: string;                               // default "GASTO" → "GASTOS"
+  debtLabel?: string;                                 // shown below amount when provided
+  debtSign?: "positive" | "negative" | "neutral";    // chip color
 }
 
 export default function BalanceCard({
@@ -21,7 +24,17 @@ export default function BalanceCard({
   monthLabel,
   expenseCount,
   totalAmount,
+  countSuffix = "GASTO",
+  debtLabel,
+  debtSign,
 }: BalanceCardProps) {
+  const suffix = expenseCount === 1 ? countSuffix : countSuffix + "S";
+
+  const debtChipClass =
+    debtSign === "positive" ? styles.debtChipPos :
+    debtSign === "negative" ? styles.debtChipNeg :
+    styles.debtChipNeutral;
+
   return (
     <div className={styles.card}>
       {/* Top row: month pill */}
@@ -48,10 +61,16 @@ export default function BalanceCard({
         )}
       </div>
 
-      {/* Large amount */}
       <span className={styles.label}>TOTAL DEL MES</span>
-      <span className={styles.countChip}>{expenseCount} {expenseCount === 1 ? "GASTO" : "GASTOS"}</span>
+      <span className={styles.countChip}>{expenseCount} {suffix}</span>
       <p className={styles.amount}>{formatCLP(totalAmount)}</p>
+
+      {debtLabel && (
+        <span className={`${styles.debtChip} ${debtChipClass}`}>
+          <span className={styles.debtDot} />
+          {debtLabel}
+        </span>
+      )}
     </div>
   );
 }
