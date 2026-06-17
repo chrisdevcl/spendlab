@@ -327,11 +327,13 @@ export async function notifySettlementReceived({
   paidBy,
   paidTo,
   amount,
+  note,
 }: {
   groupId: string | null;
   paidBy: string;
   paidTo: string;
   amount: number;
+  note?: string;
 }): Promise<void> {
   try {
     const admin = createAdminClient();
@@ -346,11 +348,14 @@ export async function notifySettlementReceived({
     const payerName = payer?.display_name ?? "Alguien";
     const groupName = group?.name ?? "SpendLab";
     const formatted = clpFormatter.format(amount);
+    const body = note?.trim()
+      ? `${payerName} registró un pago de ${formatted}: ${note.trim()}`
+      : `${payerName} registró un pago de ${formatted}`;
 
     const payload = JSON.stringify({
       title: groupName,
-      body: `${payerName} te pagó ${formatted}`,
-      url: groupId ? `/groups/${groupId}` : "/activity",
+      body,
+      url: "/saldos",
     });
 
     await sendToUsers([paidTo], payload);

@@ -10,6 +10,8 @@ interface SettlementModalProps {
   subtitle: string;
   amountRaw: string;
   onAmountChange: (digits: string) => void;
+  note: string;
+  onNoteChange: (note: string) => void;
   maxAmount: number;
   error: string;
   pending: boolean;
@@ -22,6 +24,8 @@ export default function SettlementModal({
   subtitle,
   amountRaw,
   onAmountChange,
+  note,
+  onNoteChange,
   maxAmount,
   error,
   pending,
@@ -80,6 +84,17 @@ export default function SettlementModal({
           onKeyDown={(e) => {
             if (e.key === "Enter") onConfirm();
           }}
+        />
+        <input
+          className={styles.modalInput}
+          style={{ marginTop: "0.75rem" }}
+          type="text"
+          placeholder="Descripción (opcional)"
+          value={note}
+          disabled={pending}
+          maxLength={120}
+          onChange={(e) => onNoteChange(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onConfirm(); }}
         />
         {error && <p className={styles.modalError}>{error}</p>}
         <div className={styles.modalActions}>

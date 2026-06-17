@@ -70,6 +70,7 @@ export type Settlement = {
   paid_to: string;
   amount: number;
   settled_at: string;
+  note?: string;
 };
 
 export type PasskeyCredential = {

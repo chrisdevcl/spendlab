@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { calculateEqualSplits } from "@/lib/utils/splits";
-import type { Expense, ExpenseSplit, Settlement, SplitPayment } from "@/types/database.types";
+import type { Expense, ExpenseSplit, Settlement } from "@/types/database.types";
 import type { ExpenseWithDetails } from "@/types";
 
 // ─── Read ────────────────────────────────────────────────────────────────────
@@ -274,29 +274,19 @@ export async function getAllUserExpenses(
       supabase.from("expense_splits").select("*").in("expense_id", expenseIds),
     ]);
 
-    const splitIds = (allSplits ?? []).map((s) => s.id);
-
     const payerIds = [...new Set(expenses.map((e) => e.paid_by).filter((id): id is string => id !== null))];
     const splitUserIds = [
       ...new Set((allSplits ?? []).map((s) => s.user_id)),
     ];
     const allUserIds = [...new Set([...payerIds, ...splitUserIds])];
 
-    const [{ data: allProfiles }, { data: allSplitPayments }] = await Promise.all([
-      supabase.from("profiles").select("*").in("id", allUserIds),
-      splitIds.length
-        ? supabase.from("split_payments").select("*").in("split_id", splitIds).order("paid_at", { ascending: true })
-        : Promise.resolve({ data: [] }),
-    ]);
+    const { data: allProfiles } = await supabase
+      .from("profiles")
+      .select("*")
+      .in("id", allUserIds);
 
     const groupMap = new Map((groups ?? []).map((g) => [g.id, g]));
     const profileMap = new Map((allProfiles ?? []).map((p) => [p.id, p]));
-    const paymentsMap = new Map<string, SplitPayment[]>();
-    for (const p of (allSplitPayments ?? []) as SplitPayment[]) {
-      const arr = paymentsMap.get(p.split_id) ?? [];
-      arr.push(p);
-      paymentsMap.set(p.split_id, arr);
-    }
 
     const splitsByExpense = new Map<string, ExpenseSplit[]>();
     (allSplits ?? []).forEach((s) => {
@@ -312,7 +302,7 @@ export async function getAllUserExpenses(
       splits: (splitsByExpense.get(expense.id) ?? []).map((split) => ({
         ...split,
         profile: profileMap.get(split.user_id)!,
-        payments: paymentsMap.get(split.id) ?? [],
+        payments: [],
       })),
     }));
   } catch (err) {

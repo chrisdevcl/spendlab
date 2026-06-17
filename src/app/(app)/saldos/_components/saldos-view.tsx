@@ -19,13 +19,12 @@ import styles from "./saldos-view.module.css";
 
 interface PersonTx {
   id: string;
-  date: string;          // YYYY-MM-DD
-  monthKey: string;      // YYYY-MM
+  date: string;
+  monthKey: string;
   description: string;
   groupName: string;
-  amount: number;        // positive = me favorece, negative = debo
-  type: "expense" | "payment";
-  expenseId?: string;    // for payments: link back to the expense
+  amount: number;
+  isSettlement?: boolean;
 }
 
 interface Props {
@@ -69,10 +68,10 @@ function monthLabel(key: string) {
 }
 
 /**
- * Returns ALL movements for the user↔otherId relationship:
- * - Expense entries (full raw amount, always shown even if paid)
- * - Payment entries derived from split_payments and settlements
- * Balance = sum of all amounts.
+ * Returns all movements for userId↔otherId:
+ * - Expense rows (net unpaid amount via paid_amount)
+ * - Settlement rows (saldos-flow payments, shown as positive/negative movements)
+ * totalBalance = sum of all amounts — no separate settlements subtraction needed.
  */
 function computeMovements(
   expenses: ExpenseWithDetails[],
@@ -83,80 +82,38 @@ function computeMovements(
   const txs: PersonTx[] = [];
 
   for (const exp of expenses) {
-    const isPaidByOther = exp.paid_by === otherId;
-    const isPaidByMe    = exp.paid_by === userId;
-    const isCajaComun   = exp.paid_by === null && otherId === CAJA_COMUN_ID;
-
-    if (isPaidByOther) {
+    if (exp.paid_by === otherId) {
       const mine = exp.splits.find((s) => s.user_id === userId);
-      if (mine && mine.amount > 0) {
-        txs.push({
-          id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7),
-          description: exp.description, groupName: exp.group.name,
-          amount: -mine.amount, type: "expense",
-        });
-        for (const p of mine.payments ?? []) {
-          const d = p.paid_at.slice(0, 10);
-          txs.push({
-            id: p.id, date: d, monthKey: d.slice(0, 7),
-            description: exp.description, groupName: exp.group.name,
-            amount: +p.amount, type: "payment", expenseId: exp.id,
-          });
-        }
+      if (mine) {
+        const unpaid = mine.amount - (mine.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -unpaid });
       }
-    } else if (isPaidByMe) {
+    } else if (exp.paid_by === userId) {
       const theirs = exp.splits.find((s) => s.user_id === otherId);
-      if (theirs && theirs.amount > 0) {
-        txs.push({
-          id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7),
-          description: exp.description, groupName: exp.group.name,
-          amount: +theirs.amount, type: "expense",
-        });
-        for (const p of theirs.payments ?? []) {
-          const d = p.paid_at.slice(0, 10);
-          txs.push({
-            id: p.id, date: d, monthKey: d.slice(0, 7),
-            description: exp.description, groupName: exp.group.name,
-            amount: -p.amount, type: "payment", expenseId: exp.id,
-          });
-        }
+      if (theirs) {
+        const unpaid = theirs.amount - (theirs.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: unpaid });
       }
-    } else if (isCajaComun) {
+    } else if (exp.paid_by === null && otherId === CAJA_COMUN_ID) {
       const mine = exp.splits.find((s) => s.user_id === userId);
-      if (mine && mine.amount > 0) {
-        txs.push({
-          id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7),
-          description: exp.description, groupName: exp.group.name,
-          amount: -mine.amount, type: "expense",
-        });
-        for (const p of mine.payments ?? []) {
-          const d = p.paid_at.slice(0, 10);
-          txs.push({
-            id: p.id, date: d, monthKey: d.slice(0, 7),
-            description: exp.description, groupName: exp.group.name,
-            amount: +p.amount, type: "payment", expenseId: exp.id,
-          });
-        }
+      if (mine) {
+        const unpaid = mine.amount - (mine.paid_amount ?? 0);
+        if (unpaid > 0)
+          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -unpaid });
       }
     }
   }
 
-  // Add direct settlements as payment entries (person-to-person only)
+  // Settlement movements (person-to-person only, not CAJA_COMUN_ID)
   if (otherId !== CAJA_COMUN_ID) {
     for (const s of settlements) {
       const d = s.settled_at.slice(0, 10);
       if (s.paid_by === userId && s.paid_to === otherId) {
-        txs.push({
-          id: s.id, date: d, monthKey: d.slice(0, 7),
-          description: "Pago directo", groupName: "",
-          amount: +s.amount, type: "payment",
-        });
+        txs.push({ id: s.id, date: d, monthKey: d.slice(0, 7), description: s.note || "Pago registrado", groupName: "", amount: +s.amount, isSettlement: true });
       } else if (s.paid_by === otherId && s.paid_to === userId) {
-        txs.push({
-          id: s.id, date: d, monthKey: d.slice(0, 7),
-          description: "Pago recibido", groupName: "",
-          amount: -s.amount, type: "payment",
-        });
+        txs.push({ id: s.id, date: d, monthKey: d.slice(0, 7), description: s.note || "Pago recibido", groupName: "", amount: -s.amount, isSettlement: true });
       }
     }
   }
@@ -183,7 +140,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
   const [isPending, startTransition] = useTransition();
   const currentMonth = useMemo(() => toMonthKey(new Date()), []);
 
-  // ── Caja común: virtual entity for sin-pagador expenses ────────────────────
+  // ── Caja común ────────────────────────────────────────────────────────────
   const hasCajaComun = expenses.some(
     (e) => e.paid_by === null && e.splits.some((s) => s.user_id === userId)
   );
@@ -195,25 +152,25 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     updated_at: "",
   };
 
-  // ── Balance state ──────────────────────────────────────────────────────────
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [selectedId, setSelectedId] = useState<string>(
     people[0]?.id ?? (hasCajaComun ? CAJA_COMUN_ID : "")
   );
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
-  const [payOpen, setPayOpen] = useState(false);
+  const [payOpen, setPayOpen]   = useState(false);
   const [amountRaw, setAmountRaw] = useState("");
+  const [note, setNote]         = useState("");
   const [payError, setPayError] = useState("");
 
-  // ── Header actions state ───────────────────────────────────────────────────
   const [personPickerOpen, setPersonPickerOpen] = useState(false);
   const [expensePickerOpen, setExpensePickerOpen] = useState(false);
-  const [newGroupOpen, setNewGroupOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
+  const [newGroupOpen, setNewGroupOpen]   = useState(false);
+  const [notifOpen, setNotifOpen]         = useState(false);
 
-  // ── Notification state ─────────────────────────────────────────────────────
+  // ── Notifications ─────────────────────────────────────────────────────────
   const storedTs = useSyncExternalStore(subscribeLastSeen, getLastSeenClient, getLastSeenServer);
   const [lastSeenOverride, setLastSeenOverride] = useState<string | null>(null);
-  const lastSeenTs = lastSeenOverride ?? storedTs;
+  const lastSeenTs    = lastSeenOverride ?? storedTs;
   const notifHydrated = lastSeenTs !== null;
 
   const expenseNotifs = useMemo(() => {
@@ -241,7 +198,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     } catch { /* ignore */ }
   }
 
-  // ── Unique groups for expense picker ──────────────────────────────────────
+  // ── Groups for expense picker ─────────────────────────────────────────────
   const uniqueGroups = useMemo(() => {
     const seen = new Map<string, { id: string; name: string }>();
     for (const e of expenses) {
@@ -250,7 +207,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     return [...seen.values()];
   }, [expenses]);
 
-  // ── Balance computations ───────────────────────────────────────────────────
+  // ── Balance ───────────────────────────────────────────────────────────────
   const effectivePeople = useMemo(
     () => hasCajaComun ? [...people, cajaComun] : people,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,7 +224,6 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     [expenses, settlements, userId, selectedId]
   );
 
-  // Total balance = sum of ALL movements (expenses + payments) across all months
   const totalBalance = useMemo(
     () => allTxs.reduce((s, t) => s + t.amount, 0),
     [allTxs]
@@ -284,8 +240,8 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     [allTxs, selectedMonth]
   );
 
-  const dateGroups = groupByDate(filteredTxs);
-  const iOweTotal = totalBalance < 0;
+  const dateGroups   = groupByDate(filteredTxs);
+  const iOweTotal    = totalBalance < 0;
 
   const debtSign: "positive" | "negative" | "neutral" =
     totalBalance > 0 ? "positive" :
@@ -299,6 +255,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
 
   function openPay() {
     setAmountRaw(String(Math.abs(totalBalance)));
+    setNote("");
     setPayError("");
     setPayOpen(true);
   }
@@ -306,6 +263,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
   function closePay() {
     setPayOpen(false);
     setAmountRaw("");
+    setNote("");
     setPayError("");
   }
 
@@ -316,13 +274,14 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     startTransition(async () => {
       const result = selectedId === CAJA_COMUN_ID
         ? await registerPendingPaymentAction(amount)
-        : await registerPayment(selectedId, amount);
+        : await registerPayment(selectedId, amount, note || undefined);
       if (result.error) { setPayError(result.error); return; }
       closePay();
       router.refresh();
     });
   }
 
+  // ── Empty state ───────────────────────────────────────────────────────────
   if (people.length === 0 && !hasCajaComun) {
     return (
       <div className={styles.page}>
@@ -369,12 +328,9 @@ export default function SaldosView({ people, expenses, settlements, invitations,
       </header>
 
       <div className={styles.content}>
-        {/* Person selector — only show if 2+ people */}
+        {/* Person selector */}
         {effectivePeople.length >= 2 && (
-          <button
-            className={styles.personSelectorBtn}
-            onClick={() => setPersonPickerOpen(true)}
-          >
+          <button className={styles.personSelectorBtn} onClick={() => setPersonPickerOpen(true)}>
             {selectedId === CAJA_COMUN_ID ? (
               <svg className={styles.personSelectorIcon} width="16" height="16" viewBox="0 0 20 20" fill="none">
                 <circle cx="6" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
@@ -395,7 +351,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
           </button>
         )}
 
-        {/* Balance card — shows total balance across ALL months */}
+        {/* Balance card — total across all months */}
         <BalanceCard
           selectedMonth={selectedMonth}
           availableMonths={availableMonths}
@@ -408,16 +364,16 @@ export default function SaldosView({ people, expenses, settlements, invitations,
           label="SALDO ACUMULADO"
           noPill
           debtLabel={
-            allTxs.length > 0
+            allTxs.length > 0 || Math.abs(totalBalance) > 0
               ? totalBalance > 0 ? "TE DEBE"
-              : totalBalance < 0 ? "LE DEBES"
+              : totalBalance < 0 ? "DEBES"
               : "TODO AL DÍA"
               : undefined
           }
           debtSign={debtSign}
         />
 
-        {/* Registrar pago — cuando el balance total es negativo */}
+        {/* Pay button */}
         {iOweTotal && (
           <button className={styles.payBtn} onClick={openPay}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
@@ -427,7 +383,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
           </button>
         )}
 
-        {/* Month filter — shown when there are multiple months */}
+        {/* Month filter pill */}
         {availableMonths.length > 1 && (
           <div className={styles.monthFilterRow}>
             <div className={styles.monthFilterPill}>
@@ -449,11 +405,11 @@ export default function SaldosView({ people, expenses, settlements, invitations,
           </div>
         )}
 
-        {/* Transaction / movement list */}
+        {/* Transaction list */}
         {filteredTxs.length === 0 ? (
           <p className={styles.emptyMonth}>
             {selectedId === CAJA_COMUN_ID
-              ? "Sin gastos colectivos este mes."
+              ? "Sin gastos pendientes este mes."
               : `Sin movimientos este mes con ${selectedPerson?.display_name?.split(" ")[0]}.`}
           </p>
         ) : (
@@ -461,48 +417,40 @@ export default function SaldosView({ people, expenses, settlements, invitations,
             <section key={label} className={styles.dateGroup}>
               <p className={styles.dateLabel}>{label}</p>
               <div className={styles.txList}>
-                {txs.map((tx) =>
-                  tx.type === "expense" ? (
-                    <Link key={tx.id} href={`/activity/${tx.id}`} className={styles.txRow}>
-                      <div className={styles.txLeft}>
-                        <p className={styles.txDesc}>{tx.description}</p>
-                        {tx.groupName && <span className={styles.txGroupBadge}>{tx.groupName}</span>}
-                      </div>
-                      <div className={styles.txRight}>
-                        <span className={`${styles.txAmount} ${tx.amount > 0 ? styles.txPos : styles.txNeg}`}>
-                          {tx.amount > 0 ? "+" : ""}{formatCLP(tx.amount)}
-                        </span>
-                        <svg className={styles.txChevron} width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                    </Link>
-                  ) : (
-                    <div key={tx.id} className={styles.txPayment}>
-                      <div className={styles.txPaymentIcon}>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                          <path d="M2 6.5l2.5 2.5L10 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <div className={styles.txLeft}>
-                        <p className={styles.txDesc}>{tx.description}</p>
-                        {tx.groupName && <span className={styles.txGroupBadge}>{tx.groupName}</span>}
-                      </div>
-                      <div className={styles.txRight}>
-                        <span className={`${styles.txAmount} ${tx.amount > 0 ? styles.txPos : styles.txNeg}`}>
-                          {tx.amount > 0 ? "+" : ""}{formatCLP(tx.amount)}
-                        </span>
-                      </div>
+                {txs.map((tx) => tx.isSettlement ? (
+                  <div key={tx.id} className={styles.txRow}>
+                    <div className={styles.txLeft}>
+                      <p className={styles.txDesc}>{tx.description}</p>
                     </div>
-                  )
-                )}
+                    <div className={styles.txRight}>
+                      <span className={`${styles.txAmount} ${tx.amount > 0 ? styles.txPos : styles.txNeg}`}>
+                        {tx.amount > 0 ? "+" : ""}{formatCLP(tx.amount)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <Link key={tx.id} href={`/activity/${tx.id}`} className={styles.txRow}>
+                    <div className={styles.txLeft}>
+                      <p className={styles.txDesc}>{tx.description}</p>
+                      {tx.groupName && <span className={styles.txGroupBadge}>{tx.groupName}</span>}
+                    </div>
+                    <div className={styles.txRight}>
+                      <span className={`${styles.txAmount} ${tx.amount > 0 ? styles.txPos : styles.txNeg}`}>
+                        {tx.amount > 0 ? "+" : ""}{formatCLP(tx.amount)}
+                      </span>
+                      <svg className={styles.txChevron} width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M5 2.5l4.5 4.5L5 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                  </Link>
+                ))}
               </div>
             </section>
           ))
         )}
       </div>
 
-      {/* Person picker action sheet */}
+      {/* Person picker */}
       {personPickerOpen && (
         <div className={styles.backdrop} onClick={() => setPersonPickerOpen(false)} role="dialog" aria-modal="true" aria-label="Seleccionar persona">
           <div className={styles.actionSheet} onClick={(e) => e.stopPropagation()}>
@@ -567,6 +515,8 @@ export default function SaldosView({ people, expenses, settlements, invitations,
         subtitle={selectedId === CAJA_COMUN_ID ? "Gastos pendientes de pago" : `A ${selectedPerson?.display_name ?? "…"}`}
         amountRaw={amountRaw}
         onAmountChange={setAmountRaw}
+        note={note}
+        onNoteChange={setNote}
         maxAmount={Math.abs(totalBalance)}
         error={payError}
         pending={isPending}
