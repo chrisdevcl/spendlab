@@ -228,6 +228,61 @@
 }
 .dateInput:disabled { opacity: 0.5; }
 
+/* ── Toggle row ─────────────────────────────────────────────────────────── */
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.payerPending {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.toggle {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--color-bg-muted);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.toggleOn {
+  background: var(--color-primary);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggleOn .toggleThumb {
+  transform: translateX(18px);
+}
+
 /* ── Payer grid (2 equal buttons) ───────────────────────────────────────── */
 .payerGrid {
   display: grid;
@@ -309,6 +364,19 @@
 
 .memberShareActive {
   color: var(--color-text);
+}
+
+.memberRowMuted {
+  opacity: 0.4;
+  cursor: default;
+}
+.memberRowMuted:active { background: transparent; }
+
+.memberShareMuted {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: right;
 }
 
 /* ── Checkbox ───────────────────────────────────────────────────────────── */

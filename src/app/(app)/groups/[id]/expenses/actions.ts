@@ -20,8 +20,7 @@ export async function createExpense(
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Fecha inválida" };
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    // Dev mode: skip DB, just navigate back
-    redirect(`/groups/${groupId}`);
+    redirect("/groups");
   }
 
   const supabase = await createClient();
@@ -45,6 +44,8 @@ export async function createExpense(
   // kill the process before they're dispatched (redirect() throws internally).
   await notifyExpenseAdded({ expenseId: expense.id, groupId, paidBy, createdBy: user.id, description: description.trim(), amount });
 
-  revalidatePath(`/groups/${groupId}`);
-  redirect(`/groups/${groupId}`);
+  revalidatePath("/groups");
+  revalidatePath("/activity");
+  revalidatePath("/saldos");
+  redirect("/groups");
 }

@@ -65,7 +65,7 @@ export type SplitPayment = {
 
 export type Settlement = {
   id: string;
-  group_id: string;
+  group_id: string | null;
   paid_by: string;
   paid_to: string;
   amount: number;

@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo, useSyncExternalStore, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import type { ExpenseWithDetails, PendingInvitation } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
-import { computeGlobalBalance } from "@/lib/utils/balance";
 import BalanceCard from "@/components/balance-card/balance-card";
-import SettlementModal from "@/components/settlement-modal/settlement-modal";
-import DebtListModal, { type DebtListItem, type CreditListItem } from "@/components/debt-list-modal/debt-list-modal";
-import { createGlobalSettlement } from "../actions";
+import { HeaderActions } from "@/components/header-actions/header-actions";
+import { NewGroupModal } from "@/components/modals/new-group-modal";
+import { GroupPickerModal } from "@/components/modals/group-picker-modal";
+import { NotificationsModal } from "@/components/modals/notifications-modal";
 import styles from "./activity-list.module.css";
 
 const LS_LAST_SEEN_KEY = "spendlab_notifs_last_seen";
 
-// useSyncExternalStore helpers — defined outside component for stable references
 function subscribeLastSeen() { return () => {}; }
 function getLastSeenServer(): string | null { return null; }
 function getLastSeenClient(): string | null {
@@ -33,10 +31,6 @@ interface Props {
   invitations: PendingInvitation[];
 }
 
-function firstWord(name: string): string {
-  return name?.split(" ")[0] ?? name;
-}
-
 function toMonthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -48,7 +42,6 @@ function monthLabel(key: string) {
   return `${month.charAt(0).toUpperCase() + month.slice(1)} ${y}`;
 }
 
-// Group a flat list of expenses by exact date (DD/MM/AAAA)
 function groupByDate(
   expenses: ExpenseWithDetails[]
 ): { label: string; expenses: ExpenseWithDetails[] }[] {
@@ -69,21 +62,14 @@ function groupByDate(
   return ordered.map((label) => ({ label, expenses: map.get(label)! }));
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-
 export default function ActivityList({ expenses, userId, invitations }: Props) {
   const [notifOpen, setNotifOpen] = useState(false);
 
-  // ── Expense notifications (localStorage-based read tracking) ────────────
-  // useSyncExternalStore: null on server, real localStorage value on client.
-  // No useEffect+setState needed, so react-hooks/set-state-in-effect doesn't trigger.
   const storedTs = useSyncExternalStore(subscribeLastSeen, getLastSeenClient, getLastSeenServer);
   const [lastSeenOverride, setLastSeenOverride] = useState<string | null>(null);
   const lastSeenTs = lastSeenOverride ?? storedTs;
   const notifHydrated = lastSeenTs !== null;
 
-  // Notify when user owes money on an expense they didn't create.
-  // Exception: pending expenses (no payer) always notify even if user created them.
   const expenseNotifs = useMemo(() => {
     const lastSeen = lastSeenTs ? new Date(lastSeenTs) : new Date(0);
     return expenses.filter((e) => {
@@ -102,7 +88,6 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
 
   function closeNotifs() {
     setNotifOpen(false);
-    // Mark all as seen on close
     try {
       const now = new Date().toISOString();
       localStorage.setItem(LS_LAST_SEEN_KEY, now);
@@ -110,7 +95,6 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     } catch { /* ignore */ }
   }
 
-  // ── Push permission banner ───────────────────────────────────────────────
   const [pushDismissed, setPushDismissed] = useState(false);
   const [pushPermission, setPushPermission] =
     useState<NotificationPermission | null>(() =>
@@ -133,13 +117,17 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
     "PushManager" in window &&
     !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-  const [addHref, setAddHref] = useState("/groups");
-  useEffect(() => {
-    const id = localStorage.getItem("lastGroupId");
-    if (id) setAddHref(`/groups/${id}/expenses/new`); // eslint-disable-line react-hooks/set-state-in-effect
-  }, []);
+  const [expensePickerOpen, setExpensePickerOpen] = useState(false);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
 
-  // ── Month picker ────────────────────────────────────────────────────────────
+  const uniqueGroups = useMemo(() => {
+    const seen = new Map<string, { id: string; name: string }>();
+    for (const e of expenses) {
+      if (!seen.has(e.group_id)) seen.set(e.group_id, { id: e.group_id, name: e.group.name });
+    }
+    return [...seen.values()];
+  }, [expenses]);
+
   const currentMonthKey = toMonthKey(new Date());
 
   const availableMonths = useMemo(() => {
@@ -152,7 +140,6 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const showPicker = availableMonths.length > 1;
 
-  // ── Filtered + grouped expenses ─────────────────────────────────────────────
   const filteredExpenses = useMemo(
     () => expenses.filter((e) => e.expense_date.slice(0, 7) === selectedMonth),
     [expenses, selectedMonth]
@@ -160,174 +147,26 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
 
   const groups = useMemo(() => groupByDate(filteredExpenses), [filteredExpenses]);
 
-  // Monthly totals — use the user's split amount, not the full expense amount
   const totalExpenses = filteredExpenses.length;
   const totalAmount   = filteredExpenses.reduce((s, e) => {
     const userSplit = e.splits.find((sp) => sp.user_id === userId);
     return s + (userSplit?.amount ?? e.amount);
   }, 0);
 
-  // Balance total across all groups — same logic as the group card
-  const { iOwe, theyOwe, debts, debtToPersons, pendingOwe } = useMemo(() => {
-    const allUserIds = (() => {
-      const ids = new Set<string>([userId]);
-      for (const e of expenses) {
-        if (e.paid_by) ids.add(e.paid_by);
-        for (const s of e.splits) ids.add(s.user_id);
-      }
-      return [...ids];
-    })();
-
-    const { debts } = computeGlobalBalance(expenses, userId, allUserIds);
-
-    const pendingOwe = expenses
-      .filter((e) => e.paid_by === null)
-      .flatMap((e) => e.splits)
-      .filter((s) => s.user_id === userId)
-      .reduce((sum, s) => sum + Math.max(0, s.amount - (s.paid_amount ?? 0)), 0);
-
-    const debtToPersons = debts
-      .filter((d) => d.fromUserId === userId)
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    const theyOweMe = debts
-      .filter((d) => d.toUserId === userId)
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    return { iOwe: debtToPersons + pendingOwe, theyOwe: theyOweMe, debts, debtToPersons, pendingOwe };
-  }, [expenses, userId]);
-
-  // Display names for debtors/creditors across all groups
-  const nameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const e of expenses) {
-      if (e.payer) map.set(e.payer.id, e.payer.display_name ?? e.payer.id);
-      for (const s of e.splits) {
-        if (s.profile) map.set(s.user_id, s.profile.display_name ?? s.user_id);
-      }
-    }
-    return map;
-  }, [expenses]);
-
-  // ── Debt list modal ──────────────────────────────────────────────────────────
-  const [debtListOpen, setDebtListOpen] = useState(false);
-
-  const debtItems: DebtListItem[] = useMemo(() => {
-    const items: DebtListItem[] = debts
-      .filter((d) => d.fromUserId === userId)
-      .map((d) => ({
-        id: d.toUserId,
-        name: firstWord(nameMap.get(d.toUserId) ?? d.toUserId),
-        amount: d.amount,
-        toUserId: d.toUserId,
-      }));
-    if (pendingOwe > 0) {
-      items.push({ id: "pending", name: "Pago pendiente", amount: pendingOwe, toUserId: "" });
-    }
-    return items;
-  }, [debts, pendingOwe, nameMap, userId]);
-
-  const creditItems: CreditListItem[] = useMemo(() =>
-    debts
-      .filter((d) => d.toUserId === userId)
-      .map((d) => ({
-        id: d.fromUserId,
-        name: firstWord(nameMap.get(d.fromUserId) ?? d.fromUserId),
-        amount: d.amount,
-      })),
-    [debts, nameMap, userId]
-  );
-
-  // ── Settlement modal (global, cross-group) ──────────────────────────────────
-  const router = useRouter();
-  const [settleOpen, setSettleOpen] = useState(false);
-  const [settleToUserId, setSettleToUserId] = useState<string>("");
-  const [settlementRaw, setSettlementRaw] = useState("");
-  const [settlementMax, setSettlementMax] = useState(0);
-  const [settlementSubtitle, setSettlementSubtitle] = useState("");
-  const [settlementError, setSettlementError] = useState("");
-  const [isPendingSettle, startSettleTransition] = useTransition();
-
-  const settlementAmount = parseInt(settlementRaw.replace(/\D/g, "") || "0", 10);
-
-  function openSettle() {
-    const topDebt = debts.find((d) => d.fromUserId === userId);
-    setSettleToUserId(topDebt?.toUserId ?? "");
-    setSettlementRaw(String(iOwe));
-    setSettlementMax(iOwe);
-    setSettlementSubtitle(
-      debtToPersons > 0
-        ? `Deuda total: ${formatCLP(iOwe)} · primero salda integrantes, luego pendientes`
-        : `Gastos pendientes: ${formatCLP(pendingOwe)}`
-    );
-    setSettlementError("");
-    setSettleOpen(true);
-  }
-
-  function openSettleForItem(item: DebtListItem) {
-    setSettleToUserId(item.toUserId);
-    setSettlementRaw(String(item.amount));
-    setSettlementMax(item.amount);
-    setSettlementSubtitle(
-      item.toUserId
-        ? `Pagar a ${item.name} · ${formatCLP(item.amount)}`
-        : `Gastos pendientes: ${formatCLP(item.amount)}`
-    );
-    setSettlementError("");
-    setDebtListOpen(false);
-    setSettleOpen(true);
-  }
-
-  function closeSettlement() {
-    if (isPendingSettle) return;
-    setSettleOpen(false);
-    setSettlementRaw("");
-    setSettlementError("");
-  }
-
-  function handleSettlementAmountChange(digits: string) {
-    setSettlementRaw(digits);
-    if (settlementError) setSettlementError("");
-  }
-
-  function handleSettle() {
-    if (settlementAmount <= 0) {
-      setSettlementError("Ingresa un monto válido");
-      return;
-    }
-    startSettleTransition(async () => {
-      const result = await createGlobalSettlement(userId, settleToUserId, settlementAmount);
-      if (result.error) {
-        setSettlementError(result.error);
-      } else {
-        setSettleOpen(false);
-        router.refresh();
-      }
-    });
-  }
-
   return (
     <div className={styles.page}>
-      {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className={styles.header}>
         <h1 className={styles.heading}>Actividad</h1>
-        <button
-          className={styles.bellBtn}
-          onClick={() => setNotifOpen(true)}
-          aria-label={`Notificaciones${totalBadge > 0 ? ` · ${totalBadge}` : ""}`}
-        >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M10 2a6 6 0 0 1 6 6c0 3.5 1 5 1.5 5.5h-15C3 13 4 11.5 4 8a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-            <path d="M8 16.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          {totalBadge > 0 && (
-            <span className={styles.bellBadge}>{totalBadge}</span>
-          )}
-        </button>
+        <HeaderActions
+          hasGroups={uniqueGroups.length > 0}
+          notifBadge={totalBadge}
+          onNewGroup={() => setNewGroupOpen(true)}
+          onNewExpense={() => setExpensePickerOpen(true)}
+          onNotif={() => setNotifOpen(true)}
+        />
       </header>
 
       <div className={styles.content}>
-        {/* ── Push permission banner ────────────────────────────────────── */}
         {showPushPrompt && (
           <div className={styles.pushBanner}>
             <p className={styles.pushBannerText}>
@@ -344,7 +183,6 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
           </div>
         )}
 
-        {/* ── Balance card ──────────────────────────────────────────────── */}
         <BalanceCard
           selectedMonth={selectedMonth}
           availableMonths={availableMonths}
@@ -353,16 +191,7 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
           monthLabel={monthLabel}
           expenseCount={totalExpenses}
           totalAmount={totalAmount}
-          debes={Math.max(0, iOwe - theyOwe)}
-          teDeben={theyOwe}
-          onOpenDebtList={debtItems.length > 0 || creditItems.length > 0 ? () => setDebtListOpen(true) : undefined}
         />
-
-        {/* ── Expense list ─────────────────────────────────────────────── */}
-        <div className={styles.sectionHead}>
-          <span className={styles.eyebrow}>Lista de gastos</span>
-          <Link href={addHref} className={styles.addBtn}>+ Añadir</Link>
-        </div>
 
         {totalExpenses === 0 ? (
           <div className={styles.empty}>
@@ -390,97 +219,61 @@ export default function ActivityList({ expenses, userId, invitations }: Props) {
         )}
       </div>
 
-      {/* ── Debt list modal ─────────────────────────────────────────────── */}
-      <DebtListModal
-        open={debtListOpen}
-        onClose={() => setDebtListOpen(false)}
-        items={debtItems}
-        creditItems={creditItems}
-        onPay={openSettleForItem}
-        onPayAll={debtItems.length > 1 ? () => { setDebtListOpen(false); openSettle(); } : undefined}
+      <GroupPickerModal
+        open={expensePickerOpen}
+        onClose={() => setExpensePickerOpen(false)}
+        groups={uniqueGroups}
       />
 
-      {/* ── Settlement modal ─────────────────────────────────────────────── */}
-      <SettlementModal
-        open={settleOpen}
-        onClose={closeSettlement}
-        subtitle={settlementSubtitle}
-        amountRaw={settlementRaw}
-        onAmountChange={handleSettlementAmountChange}
-        maxAmount={settlementMax}
-        error={settlementError}
-        pending={isPendingSettle}
-        onConfirm={handleSettle}
-      />
+      <NewGroupModal open={newGroupOpen} onClose={() => setNewGroupOpen(false)} />
 
-      {/* ── Notifications bottom sheet ────────────────────────────────── */}
-      {notifOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={closeNotifs}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Notificaciones"
-        >
-          <div className={styles.notifSheet} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.notifTitle}>Notificaciones</p>
-
-            {expenseNotifs.length === 0 && invitations.length === 0 && (
-              <p className={styles.notifEmpty}>Sin notificaciones pendientes.</p>
-            )}
-
-            {expenseNotifs.length > 0 && (
-              <>
-                <p className={styles.notifSubLabel}>GASTOS NUEVOS · {expenseNotifs.length}</p>
-                {expenseNotifs.map((e) => (
-                  <div key={e.id} className={styles.expenseNotifCard}>
-                    <div className={styles.expenseNotifRow}>
-                      <p className={styles.expenseNotifDesc}>{e.description}</p>
-                      <p className={styles.expenseNotifAmount}>{formatCLP(e.amount)}</p>
-                    </div>
-                    <p className={styles.expenseNotifMeta}>
-                      {e.payer?.display_name ?? "Alguien"} añadió · {e.group.name}
-                    </p>
-                    <Link
-                      href={`/activity/${e.id}`}
-                      className={styles.expenseNotifLink}
-                      onClick={closeNotifs}
-                    >
-                      Ver detalle →
-                    </Link>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {expenseNotifs.length > 0 && invitations.length > 0 && (
-              <div className={styles.notifSectionGap} />
-            )}
-
-            {invitations.length > 0 && (
-              <>
-                <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
-                {invitations.map((inv) => (
-                  <div key={inv.id} className={styles.invCard}>
-                    <p className={styles.invGroupName}>{inv.group_name}</p>
-                    <p className={styles.invMeta}>
-                      Te invitó {inv.inviter_name} · {inv.member_count === 1 ? "1 integrante" : `${inv.member_count} integrantes`}
-                    </p>
-                    <Link href="/groups" className={styles.invLink} onClick={closeNotifs}>
-                      Ver en Grupos →
-                    </Link>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <NotificationsModal
+        open={notifOpen}
+        onClose={closeNotifs}
+        isEmpty={expenseNotifs.length === 0 && invitations.length === 0}
+      >
+        {expenseNotifs.length > 0 && (
+          <>
+            <p className={styles.notifSubLabel}>GASTOS NUEVOS · {expenseNotifs.length}</p>
+            {expenseNotifs.map((e) => (
+              <div key={e.id} className={styles.expenseNotifCard}>
+                <div className={styles.expenseNotifRow}>
+                  <p className={styles.expenseNotifDesc}>{e.description}</p>
+                  <p className={styles.expenseNotifAmount}>{formatCLP(e.amount)}</p>
+                </div>
+                <p className={styles.expenseNotifMeta}>
+                  {e.payer?.display_name ?? "Alguien"} añadió · {e.group.name}
+                </p>
+                <Link href={`/activity/${e.id}`} className={styles.expenseNotifLink} onClick={closeNotifs}>
+                  Ver detalle →
+                </Link>
+              </div>
+            ))}
+          </>
+        )}
+        {expenseNotifs.length > 0 && invitations.length > 0 && (
+          <div className={styles.notifSectionGap} />
+        )}
+        {invitations.length > 0 && (
+          <>
+            <p className={styles.notifSubLabel}>INVITACIONES · {invitations.length}</p>
+            {invitations.map((inv) => (
+              <div key={inv.id} className={styles.invCard}>
+                <p className={styles.invGroupName}>{inv.group_name}</p>
+                <p className={styles.invMeta}>
+                  Te invitó {inv.inviter_name} · {inv.member_count === 1 ? "1 integrante" : `${inv.member_count} integrantes`}
+                </p>
+                <Link href="/groups" className={styles.invLink} onClick={closeNotifs}>
+                  Ver en Grupos →
+                </Link>
+              </div>
+            ))}
+          </>
+        )}
+      </NotificationsModal>
     </div>
   );
 }
-
-// ── Expense row ───────────────────────────────────────────────────────────────
 
 function ExpenseRow({ expense, userId }: { expense: ExpenseWithDetails; userId: string }) {
   const userSplit = expense.splits.find((s) => s.user_id === userId);

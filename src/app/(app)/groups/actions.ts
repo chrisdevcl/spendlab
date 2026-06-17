@@ -5,11 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createGroup as createGroupService,
   inviteMember as inviteMemberService,
+  deleteGroup as deleteGroupService,
+  updateGroup as updateGroupService,
 } from "@/lib/services/groups.service";
+import { getGroupExpenses } from "@/lib/services/expenses.service";
 import {
   notifyInvitationAccepted,
   notifyInvitationRejected,
 } from "@/lib/services/notifications.service";
+import { sendInvitationEmail } from "@/lib/email/invitation";
 
 const DEV_MODE = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -156,6 +160,86 @@ export async function inviteMember(
   if (!invitation)
     return { error: "Error al enviar la invitación. Intenta de nuevo." };
 
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath(`/groups`);
   return {};
+}
+
+export async function inviteMemberToGroup(
+  groupId: string,
+  email: string
+): Promise<{ error?: string }> {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed) return { error: "El email no puede estar vacío" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed))
+    return { error: "Email inválido" };
+
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const invitation = await inviteMemberService(groupId, trimmed, user.id);
+  if (!invitation)
+    return { error: "Error al enviar la invitación. Intenta de nuevo." };
+
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    const [profileRes, groupRes] = await Promise.all([
+      supabase.from("profiles").select("display_name").eq("id", user.id).single(),
+      supabase.from("groups").select("name").eq("id", groupId).single(),
+    ]);
+    const inviterName = profileRes.data?.display_name ?? user.email ?? "Alguien";
+    const groupName = groupRes.data?.name ?? "un grupo";
+    sendInvitationEmail({ toEmail: trimmed, inviterName, groupName }).catch(
+      (err) => console.error("[inviteMemberToGroup] email error:", err)
+    );
+  }
+
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function deleteGroup(groupId: string): Promise<{ error?: string }> {
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const ok = await deleteGroupService(groupId);
+  if (!ok) return { error: "Error al eliminar el grupo. Intenta de nuevo." };
+
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function renameGroup(
+  groupId: string,
+  name: string
+): Promise<{ error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "El nombre no puede estar vacío" };
+  if (trimmed.length > 60) return { error: "Máximo 60 caracteres" };
+
+  if (DEV_MODE) return {};
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await updateGroupService(groupId, trimmed);
+  if (error) return { error: "Error al renombrar el grupo. Intenta de nuevo." };
+
+  revalidatePath("/groups");
+  return {};
+}
+
+export async function fetchGroupExpenses(groupId: string) {
+  if (DEV_MODE) return [];
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  return getGroupExpenses(groupId);
 }

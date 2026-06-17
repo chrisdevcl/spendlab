@@ -13,8 +13,8 @@ const MOCK_MEMBERS: Profile[] = [
 ];
 
 const MOCK_GROUPS: GroupWithMembers[] = [
-  { id: "g1", name: "Casa", created_by: "u1", created_at: "", updated_at: "", members: MOCK_MEMBERS, balance: 0 },
-  { id: "g2", name: "Viaje", created_by: "u1", created_at: "", updated_at: "", members: [MOCK_MEMBERS[0]], balance: 0 },
+  { id: "g1", name: "Casa", created_by: "u1", created_at: "", updated_at: "", members: MOCK_MEMBERS, totalSpent: 0 },
+  { id: "g2", name: "Viaje", created_by: "u1", created_at: "", updated_at: "", members: [MOCK_MEMBERS[0]], totalSpent: 0 },
 ];
 
 export default async function NewExpensePage({

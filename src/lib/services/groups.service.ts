@@ -72,11 +72,11 @@ export async function getMyGroups(
       return null;
     }
 
-    // 3. Batch-fetch all member rows + profiles in two queries
-    const { data: allMemberRows, error: amErr } = await supabase
-      .from("group_members")
-      .select("group_id, user_id")
-      .in("group_id", groupIds);
+    // 3. Batch-fetch members + profiles + expense totals in parallel
+    const [{ data: allMemberRows, error: amErr }, { data: expenseRows }] = await Promise.all([
+      supabase.from("group_members").select("group_id, user_id").in("group_id", groupIds),
+      supabase.from("expenses").select("group_id, amount").in("group_id", groupIds),
+    ]);
 
     if (amErr) {
       console.error("[getMyGroups] allMembers error:", amErr.message);
@@ -91,7 +91,6 @@ export async function getMyGroups(
 
     const profileMap = new Map((allProfiles ?? []).map((p) => [p.id, p]));
 
-    // Group members by group_id
     const membersByGroup = new Map<string, Profile[]>();
     (allMemberRows ?? []).forEach((row) => {
       const profile = profileMap.get(row.user_id);
@@ -101,10 +100,15 @@ export async function getMyGroups(
       membersByGroup.set(row.group_id, arr);
     });
 
+    const totalsByGroup = new Map<string, number>();
+    (expenseRows ?? []).forEach((e) => {
+      totalsByGroup.set(e.group_id, (totalsByGroup.get(e.group_id) ?? 0) + e.amount);
+    });
+
     return groups.map((group) => ({
       ...group,
       members: membersByGroup.get(group.id) ?? [],
-      balance: 0, // Computed on client via computeGroupBalance
+      totalSpent: totalsByGroup.get(group.id) ?? 0,
     }));
   } catch (err) {
     console.error("[getMyGroups] unexpected error:", err);
@@ -127,11 +131,17 @@ export async function getGroup(groupId: string): Promise<GroupWithMembers | null
       return null;
     }
 
-    const members = await getGroupMembers(groupId);
+    const [members, { data: expenseRows }] = await Promise.all([
+      getGroupMembers(groupId),
+      supabase.from("expenses").select("amount").eq("group_id", groupId),
+    ]);
+
+    const totalSpent = (expenseRows ?? []).reduce((s, e) => s + e.amount, 0);
+
     return {
       ...group,
       members: members ?? [],
-      balance: 0,
+      totalSpent,
     };
   } catch (err) {
     console.error("[getGroup] unexpected error:", err);

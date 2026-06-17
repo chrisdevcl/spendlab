@@ -16,12 +16,36 @@
   padding: 1.5rem;
 }
 
-.modalTitle {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--color-text);
+.modalHeader {
+  display: flex;
+  align-items: center;
   margin-bottom: 0.375rem;
 }
+
+.modalTitle {
+  flex: 1;
+  font-family: var(--font-serif), serif;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.closeBtn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s;
+}
+.closeBtn:hover { background: var(--color-bg-muted); }
 
 .modalSub {
   font-size: 0.875rem;
@@ -59,17 +83,18 @@
 .btnCancel {
   flex: 1;
   padding: 1rem;
-  background: transparent;
-  color: var(--color-text);
-  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  border: none;
   border-radius: var(--radius-lg);
   font-size: 1rem;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background-color 0.12s;
+  transition: opacity 0.12s;
 }
-.btnCancel:hover { background: var(--color-bg-muted); }
+.btnCancel:hover { opacity: 0.75; }
+.btnCancel:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btnConfirm {
   flex: 1;

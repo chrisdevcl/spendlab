@@ -40,7 +40,7 @@ export default function NewExpenseForm({
   const today  = todayLocal();
 
   // ── Group selection ────────────────────────────────────────────────────────
-  const [selectedGroupId, setSelectedGroupId] = useState(groupId);
+  const selectedGroupId = groupId;
   const currentGroup = useMemo(
     () => allGroups.find((g) => g.id === selectedGroupId) ?? allGroups[0],
     [allGroups, selectedGroupId]
@@ -65,7 +65,9 @@ export default function NewExpenseForm({
   // ── Form state ─────────────────────────────────────────────────────────────
   const [description, setDescription] = useState("");
   const [date, setDate]   = useState<string>(today);
-  const [paidBy, setPaidBy] = useState<string | null>(userId);
+  const [paidBy, setPaidBy] = useState<string | null>(null);
+  const [hasPayer, setHasPayer] = useState(false);
+  const [dividir, setDividir] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(members.map((m) => m.id))
   );
@@ -74,6 +76,16 @@ export default function NewExpenseForm({
   const [isPending, startTransition] = useTransition();
 
   const isToday = date === today;
+
+  function toggleHasPayer(on: boolean) {
+    setHasPayer(on);
+    if (on) {
+      setPaidBy(userId);
+    } else {
+      setPaidBy(null);
+      setDividir(true);
+    }
+  }
 
   function toggleMember(id: string) {
     setSelectedIds((prev) => {
@@ -90,14 +102,17 @@ export default function NewExpenseForm({
 
   // ── Split preview ──────────────────────────────────────────────────────────
   const splits = useMemo<Record<string, number>>(() => {
-    const selected = members.filter((m) => selectedIds.has(m.id));
-    if (!selected.length || amountValue === 0) return {};
-    const base      = Math.floor(amountValue / selected.length);
-    const remainder = amountValue % selected.length;
+    let eligible = members.filter((m) => selectedIds.has(m.id));
+    if (!dividir && paidBy) {
+      eligible = eligible.filter((m) => m.id !== paidBy);
+    }
+    if (!eligible.length || amountValue === 0) return {};
+    const base      = Math.floor(amountValue / eligible.length);
+    const remainder = amountValue % eligible.length;
     return Object.fromEntries(
-      selected.map((m, i) => [m.id, base + (i < remainder ? 1 : 0)])
+      eligible.map((m, i) => [m.id, base + (i < remainder ? 1 : 0)])
     );
-  }, [amountValue, members, selectedIds]);
+  }, [amountValue, members, selectedIds, dividir, paidBy]);
 
   // ── Save ───────────────────────────────────────────────────────────────────
   const canSave = amountValue > 0 && description.trim().length > 0 && selectedIds.size > 0;
@@ -106,12 +121,18 @@ export default function NewExpenseForm({
     if (!canSave) return;
     setError("");
     startTransition(async () => {
+      const effectivePaidBy = isSolo ? (members[0]?.id ?? userId) : paidBy;
+      const memberIds = isSolo
+        ? members.map((m) => m.id)
+        : !dividir && paidBy
+        ? Array.from(selectedIds).filter((id) => id !== paidBy)
+        : Array.from(selectedIds);
       const result = await createExpense(
         selectedGroupId,
-        paidBy,
+        effectivePaidBy,
         amountValue,
         description,
-        Array.from(selectedIds),
+        memberIds,
         date
       );
       if (result?.error) setError(result.error);
@@ -189,36 +210,6 @@ export default function NewExpenseForm({
           </div>
         </div>
 
-        {/* ── Group selector (hidden when only 1 group) ───────────────── */}
-        {allGroups.length > 1 && (
-          <div className={styles.formSection}>
-            <p className={styles.sectionLabel}>Grupo</p>
-            <div className={styles.groupSelectWrap}>
-              <span className={styles.groupSelectValue}>{currentGroup?.name ?? ""}</span>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <select
-                className={styles.groupSelectOverlay}
-                value={selectedGroupId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const group = allGroups.find((g) => g.id === id);
-                  const ids = group?.members.map((m) => m.id) ?? [];
-                  setSelectedGroupId(id);
-                  setPaidBy(ids.includes(userId) ? userId : (ids[0] ?? userId));
-                  setSelectedIds(new Set(ids));
-                }}
-                disabled={isPending}
-                aria-label="Seleccionar grupo"
-              >
-                {allGroups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
 
         {/* ── Description ─────────────────────────────────────────────── */}
         <div className={styles.formSection}>
@@ -256,56 +247,88 @@ export default function NewExpenseForm({
         {/* ── Payer + splits (hidden in solo mode) ────────────────────── */}
         {!isSolo && (
           <>
-            {/* ¿Quién pagó? */}
+            {/* ¿Quién pagó? toggle */}
             <div className={styles.formSection}>
-              <p className={styles.sectionLabel}>¿Quién pagó?</p>
-              <div className={styles.payerGrid}>
-                {members.map((m) => (
-                  <button
-                    key={m.id}
-                    className={`${styles.payerBtn} ${paidBy === m.id ? styles.payerBtnActive : ""}`}
-                    onClick={() => setPaidBy(m.id)}
-                    disabled={isPending}
-                  >
-                    {m.display_name.split(" ")[0]}
-                  </button>
-                ))}
+              <div className={styles.toggleRow}>
+                <p className={styles.sectionLabel}>¿Quién pagó?</p>
                 <button
-                  className={`${styles.payerBtn} ${paidBy === null ? styles.payerBtnActive : ""}`}
-                  onClick={() => setPaidBy(null)}
+                  role="switch"
+                  aria-checked={hasPayer}
+                  className={`${styles.toggle} ${hasPayer ? styles.toggleOn : ""}`}
+                  onClick={() => toggleHasPayer(!hasPayer)}
                   disabled={isPending}
                 >
-                  Pago pendiente
+                  <span className={styles.toggleThumb} />
                 </button>
               </div>
+              {!hasPayer && (
+                <div className={styles.payerPending}>Pendiente de pago</div>
+              )}
+              {hasPayer && (
+                <div className={styles.payerGrid}>
+                  {members.map((m) => (
+                    <button
+                      key={m.id}
+                      className={`${styles.payerBtn} ${paidBy === m.id ? styles.payerBtnActive : ""}`}
+                      onClick={() => setPaidBy(m.id)}
+                      disabled={isPending}
+                    >
+                      {m.display_name.split(" ")[0]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Dividir entre */}
+            {/* Dividir toggle + member list */}
             <div className={styles.formSection}>
-              <p className={styles.sectionLabel}>Dividir entre</p>
+              <div className={styles.toggleRow}>
+                <p className={styles.sectionLabel}>Dividir</p>
+                {hasPayer && (
+                  <button
+                    role="switch"
+                    aria-checked={dividir}
+                    className={`${styles.toggle} ${dividir ? styles.toggleOn : ""}`}
+                    onClick={() => setDividir((d) => !d)}
+                    disabled={isPending}
+                  >
+                    <span className={styles.toggleThumb} />
+                  </button>
+                )}
+              </div>
               <div className={styles.memberList}>
                 {members.map((m) => {
-                  const checked  = selectedIds.has(m.id);
-                  const shareAmt = splits[m.id];
-                  const initials = (m.display_name[0] ?? "?").toUpperCase();
+                  const isExcluded = !dividir && m.id === paidBy;
+                  const checked    = selectedIds.has(m.id);
+                  const shareAmt   = splits[m.id];
+                  const initials   = (m.display_name[0] ?? "?").toUpperCase();
                   return (
                     <div
                       key={m.id}
-                      className={styles.memberRow}
-                      onClick={() => !isPending && toggleMember(m.id)}
+                      className={`${styles.memberRow} ${isExcluded ? styles.memberRowMuted : ""}`}
+                      onClick={() => !isPending && !isExcluded && toggleMember(m.id)}
                     >
                       <div className={styles.memberAvatar}>{initials}</div>
                       <p className={styles.memberName}>{m.display_name.split(" ")[0]}</p>
-                      <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
-                        {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
-                      </p>
-                      <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
-                        {checked && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </div>
+                      {isExcluded ? (
+                        <>
+                          <p className={styles.memberShareMuted}>Pagador</p>
+                          <span />
+                        </>
+                      ) : (
+                        <>
+                          <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
+                            {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
+                          </p>
+                          <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
+                            {checked && (
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })}

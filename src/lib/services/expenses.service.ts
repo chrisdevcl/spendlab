@@ -185,6 +185,27 @@ export async function getGroupSplits(
   }
 }
 
+export async function getAllUserSettlements(
+  userId: string
+): Promise<Settlement[]> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("settlements")
+      .select("*")
+      .or(`paid_by.eq.${userId},paid_to.eq.${userId}`)
+      .order("settled_at", { ascending: false });
+    if (error) {
+      console.error("[getAllUserSettlements] error:", error.message);
+      return [];
+    }
+    return data ?? [];
+  } catch (err) {
+    console.error("[getAllUserSettlements] unexpected error:", err);
+    return [];
+  }
+}
+
 export async function getGroupSettlements(
   groupId: string
 ): Promise<Settlement[] | null> {

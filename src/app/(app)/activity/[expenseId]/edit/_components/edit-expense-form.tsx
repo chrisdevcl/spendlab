@@ -75,7 +75,15 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
   // ── Form state ─────────────────────────────────────────────────────────────
   const [description, setDescription] = useState(expense.description);
   const [date, setDate] = useState<string>(expense.expense_date.slice(0, 10));
+
+  // Detect existing payer / dividir state from saved expense
+  const hasPayer0 = expense.paid_by !== null;
+  const payerInSplits = expense.splits.some((s) => s.user_id === expense.paid_by);
+  const dividir0 = !hasPayer0 || payerInSplits;
+
   const [paidBy, setPaidBy] = useState<string | null>(expense.paid_by);
+  const [hasPayer, setHasPayer] = useState(hasPayer0);
+  const [dividir, setDividir] = useState(dividir0);
 
   const initialSelected = expense.splits.length
     ? expense.splits.map((s) => s.user_id)
@@ -84,6 +92,16 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
 
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  function toggleHasPayer(on: boolean) {
+    setHasPayer(on);
+    if (on) {
+      setPaidBy(userId);
+    } else {
+      setPaidBy(null);
+      setDividir(true);
+    }
+  }
 
   function toggleMember(id: string) {
     setSelectedIds((prev) => {
@@ -100,14 +118,17 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
 
   // ── Split preview ──────────────────────────────────────────────────────────
   const splits = useMemo<Record<string, number>>(() => {
-    const selected = members.filter((m) => selectedIds.has(m.id));
-    if (!selected.length || amountValue === 0) return {};
-    const base      = Math.floor(amountValue / selected.length);
-    const remainder = amountValue % selected.length;
+    let eligible = members.filter((m) => selectedIds.has(m.id));
+    if (!dividir && paidBy) {
+      eligible = eligible.filter((m) => m.id !== paidBy);
+    }
+    if (!eligible.length || amountValue === 0) return {};
+    const base      = Math.floor(amountValue / eligible.length);
+    const remainder = amountValue % eligible.length;
     return Object.fromEntries(
-      selected.map((m, i) => [m.id, base + (i < remainder ? 1 : 0)])
+      eligible.map((m, i) => [m.id, base + (i < remainder ? 1 : 0)])
     );
-  }, [amountValue, members, selectedIds]);
+  }, [amountValue, members, selectedIds, dividir, paidBy]);
 
   // ── Save ───────────────────────────────────────────────────────────────────
   const canSave = amountValue > 0 && description.trim().length > 0;
@@ -119,6 +140,8 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
     const effectivePaidBy = isSolo ? (members[0]?.id ?? userId) : paidBy;
     const memberIds = isSolo
       ? members.map((m) => m.id)
+      : !dividir && paidBy
+      ? Array.from(selectedIds).filter((id) => id !== paidBy)
       : Array.from(selectedIds);
 
     startTransition(async () => {
@@ -267,56 +290,88 @@ export default function EditExpenseForm({ expense, allGroups, userId }: Props) {
         {/* ── Payer + split type + splits (hidden in solo mode) ───────── */}
         {!isSolo && (
           <>
-            {/* ¿Quién pagó? */}
+            {/* ¿Quién pagó? toggle */}
             <div className={styles.formSection}>
-              <p className={styles.sectionLabel}>¿Quién pagó?</p>
-              <div className={styles.payerGrid}>
-                {members.map((m) => (
-                  <button
-                    key={m.id}
-                    className={`${styles.payerBtn} ${paidBy === m.id ? styles.payerBtnActive : ""}`}
-                    onClick={() => setPaidBy(m.id)}
-                    disabled={isPending}
-                  >
-                    {m.display_name.split(" ")[0]}
-                  </button>
-                ))}
+              <div className={styles.toggleRow}>
+                <p className={styles.sectionLabel}>¿Quién pagó?</p>
                 <button
-                  className={`${styles.payerBtn} ${paidBy === null ? styles.payerBtnActive : ""}`}
-                  onClick={() => setPaidBy(null)}
+                  role="switch"
+                  aria-checked={hasPayer}
+                  className={`${styles.toggle} ${hasPayer ? styles.toggleOn : ""}`}
+                  onClick={() => toggleHasPayer(!hasPayer)}
                   disabled={isPending}
                 >
-                  Pago pendiente
+                  <span className={styles.toggleThumb} />
                 </button>
               </div>
+              {!hasPayer && (
+                <div className={styles.payerPending}>Pendiente de pago</div>
+              )}
+              {hasPayer && (
+                <div className={styles.payerGrid}>
+                  {members.map((m) => (
+                    <button
+                      key={m.id}
+                      className={`${styles.payerBtn} ${paidBy === m.id ? styles.payerBtnActive : ""}`}
+                      onClick={() => setPaidBy(m.id)}
+                      disabled={isPending}
+                    >
+                      {m.display_name.split(" ")[0]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Dividir entre */}
+            {/* Dividir toggle + member list */}
             <div className={styles.formSection}>
-              <p className={styles.sectionLabel}>Dividir entre</p>
+              <div className={styles.toggleRow}>
+                <p className={styles.sectionLabel}>Dividir</p>
+                {hasPayer && (
+                  <button
+                    role="switch"
+                    aria-checked={dividir}
+                    className={`${styles.toggle} ${dividir ? styles.toggleOn : ""}`}
+                    onClick={() => setDividir((d) => !d)}
+                    disabled={isPending}
+                  >
+                    <span className={styles.toggleThumb} />
+                  </button>
+                )}
+              </div>
               <div className={styles.memberList}>
                 {members.map((m) => {
-                  const checked  = selectedIds.has(m.id);
-                  const shareAmt = splits[m.id];
-                  const initials = (m.display_name[0] ?? "?").toUpperCase();
+                  const isExcluded = !dividir && m.id === paidBy;
+                  const checked    = selectedIds.has(m.id);
+                  const shareAmt   = splits[m.id];
+                  const initials   = (m.display_name[0] ?? "?").toUpperCase();
                   return (
                     <div
                       key={m.id}
-                      className={styles.memberRow}
-                      onClick={() => !isPending && toggleMember(m.id)}
+                      className={`${styles.memberRow} ${isExcluded ? styles.memberRowMuted : ""}`}
+                      onClick={() => !isPending && !isExcluded && toggleMember(m.id)}
                     >
                       <div className={styles.memberAvatar}>{initials}</div>
                       <p className={styles.memberName}>{m.display_name.split(" ")[0]}</p>
-                      <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
-                        {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
-                      </p>
-                      <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
-                        {checked && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </div>
+                      {isExcluded ? (
+                        <>
+                          <p className={styles.memberShareMuted}>Pagador</p>
+                          <span />
+                        </>
+                      ) : (
+                        <>
+                          <p className={`${styles.memberShare} ${checked ? styles.memberShareActive : ""}`}>
+                            {checked && shareAmt != null ? formatCLP(shareAmt) : "—"}
+                          </p>
+                          <div className={`${styles.checkbox} ${checked ? styles.checkboxOn : ""}`}>
+                            {checked && (
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })}

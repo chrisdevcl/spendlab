@@ -17,7 +17,9 @@ import type { Profile, Group, Expense, ExpenseSplit, SplitPayment } from "./data
 
 export interface GroupWithMembers extends Group {
   members: Profile[];
-  balance: number;
+  totalSpent: number;
+  expenseCount?: number;
+  userBalance?: number;
 }
 
 export interface SplitWithProfile extends ExpenseSplit {

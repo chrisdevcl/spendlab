@@ -71,66 +71,26 @@
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1;
-  margin-bottom: 0.875rem;
-}
-
-.dividerLine {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.2);
-  margin-bottom: 0.875rem;
-}
-
-.statsRow {
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-}
-
-.stat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2rem;
-  max-width: 12rem;
-}
-
-.statDivider {
-  width: 1px;
-  align-self: stretch;
-  background: rgba(255, 255, 255, 0.2);
-  margin: 0 1.5rem;
+  margin-bottom: 0;
 }
 
 .label {
+  display: block;
   font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   opacity: 0.72;
+  margin-bottom: 0.375rem;
 }
 
-.statValue {
-  font-size: 1.0625rem;
-  font-weight: 600;
-}
-
-/* ── Ver detalle ────────────────────────────────────────────────────────── */
-.detailBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  margin-top: 1rem;
-  padding: 0.5rem 1.125rem;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+.countChip {
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: var(--radius-full);
-  font-size: 0.8125rem;
+  padding: 0.175rem 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background-color 0.15s;
-  -webkit-tap-highlight-color: transparent;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 0.875rem;
 }
-.detailBtn:hover { background: rgba(255, 255, 255, 0.28); }

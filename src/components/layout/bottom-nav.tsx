@@ -46,6 +46,26 @@ function IconActivity({ active }: { active: boolean }) {
   );
 }
 
+function IconSaldos({ active }: { active: boolean }) {
+  const weight = active ? 2 : 1.5;
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={weight}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 4L3 9h3v7h2V9h3L7 4z" />
+      <path d="M17 20l4-5h-3V8h-2v7h-3l4 5z" />
+    </svg>
+  );
+}
+
 function IconProfile({ active }: { active: boolean }) {
   const weight = active ? 2 : 1.5;
   return (
@@ -68,6 +88,7 @@ function IconProfile({ active }: { active: boolean }) {
 
 const NAV_ITEMS = [
   { href: "/groups", label: "Grupos", Icon: IconGroups },
+  { href: "/saldos", label: "Saldos", Icon: IconSaldos },
   { href: "/activity", label: "Actividad", Icon: IconActivity },
   { href: "/profile", label: "Perfil", Icon: IconProfile },
 ] as const;
@@ -75,20 +96,14 @@ const NAV_ITEMS = [
 export default function BottomNav() {
   const pathname = usePathname();
 
-  function getGroupsHref() {
-    const id = localStorage.getItem("lastGroupId");
-    return id ? `/groups/${id}` : "/groups";
-  }
-
   return (
     <nav className={styles.nav} aria-label="Navegación principal">
       {NAV_ITEMS.map(({ href, label, Icon }) => {
-        const resolvedHref = href === "/groups" ? getGroupsHref() : href;
         const active = pathname.startsWith(href);
         return (
           <Link
             key={href}
-            href={resolvedHref}
+            href={href}
             className={`${styles.item}${active ? ` ${styles.active}` : ""}`}
             aria-current={active ? "page" : undefined}
           >

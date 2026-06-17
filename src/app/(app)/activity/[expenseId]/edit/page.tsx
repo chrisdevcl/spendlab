@@ -18,8 +18,8 @@ const MOCK_GROUP = { id: "g2", name: "Viaje MdP", created_by: "u1", created_at: 
 const MOCK_GROUP_ALT = { id: "g3", name: "Viaje MdP (cuenta extra)", created_by: "u1", created_at: "", updated_at: "" };
 
 const MOCK_GROUPS: GroupWithMembers[] = [
-  { ...MOCK_GROUP, members: [U1, U2, U3], balance: 0 },
-  { ...MOCK_GROUP_ALT, members: [U1, U2, U3], balance: 0 },
+  { ...MOCK_GROUP, members: [U1, U2, U3], totalSpent: 0 },
+  { ...MOCK_GROUP_ALT, members: [U1, U2, U3], totalSpent: 0 },
 ];
 
 const MOCK_EXPENSE: ExpenseWithDetails = {

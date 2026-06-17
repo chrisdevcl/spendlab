@@ -57,7 +57,12 @@ export default function SettlementModal({
       aria-label="Registrar pago"
     >
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <p className={styles.modalTitle}>Registrar pago</p>
+        <div className={styles.modalHeader}>
+          <p className={styles.modalTitle}>Registrar pago</p>
+          <button className={styles.closeBtn} onClick={onClose} aria-label="Cerrar" disabled={pending}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
+        </div>
         <p className={styles.modalSub}>{subtitle}</p>
         <input
           ref={inputRef}
