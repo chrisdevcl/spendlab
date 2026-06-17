@@ -14,6 +14,8 @@ interface BalanceCardProps {
   countSuffix?: string;                               // default "GASTO" → "GASTOS"
   debtLabel?: string;                                 // shown below amount when provided
   debtSign?: "positive" | "negative" | "neutral";    // chip color
+  noPill?: boolean;                                   // hide month pill (saldos total view)
+  label?: string;                                     // override "TOTAL DEL MES"
 }
 
 export default function BalanceCard({
@@ -27,6 +29,8 @@ export default function BalanceCard({
   countSuffix = "GASTO",
   debtLabel,
   debtSign,
+  noPill = false,
+  label = "TOTAL DEL MES",
 }: BalanceCardProps) {
   const suffix = expenseCount === 1 ? countSuffix : countSuffix + "S";
 
@@ -37,31 +41,33 @@ export default function BalanceCard({
 
   return (
     <div className={styles.card}>
-      {/* Top row: month pill */}
-      <div className={styles.topRow}>
-        {showPicker ? (
-          <div className={styles.monthPill}>
-            <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <select
-              className={styles.monthSelectOverlay}
-              value={selectedMonth}
-              onChange={(e) => onMonthChange(e.target.value)}
-              aria-label="Seleccionar mes"
-            >
-              {availableMonths.map((key) => (
-                <option key={key} value={key}>{monthLabel(key)}</option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
-        )}
-      </div>
+      {/* Top row: month pill (hidden in noPill mode) */}
+      {!noPill && (
+        <div className={styles.topRow}>
+          {showPicker ? (
+            <div className={styles.monthPill}>
+              <span className={styles.monthPillLabel}>{monthLabel(selectedMonth)}</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <select
+                className={styles.monthSelectOverlay}
+                value={selectedMonth}
+                onChange={(e) => onMonthChange(e.target.value)}
+                aria-label="Seleccionar mes"
+              >
+                {availableMonths.map((key) => (
+                  <option key={key} value={key}>{monthLabel(key)}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span className={styles.monthPillStatic}>{monthLabel(selectedMonth)}</span>
+          )}
+        </div>
+      )}
 
-      <span className={styles.label}>TOTAL DEL MES</span>
+      <span className={styles.label}>{label}</span>
       <span className={styles.countChip}>{expenseCount} {suffix}</span>
       <p className={styles.amount}>{formatCLP(totalAmount)}</p>
 
