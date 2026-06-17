@@ -224,11 +224,6 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     [expenses, settlements, userId, selectedId]
   );
 
-  const totalBalance = useMemo(
-    () => allTxs.reduce((s, t) => s + t.amount, 0),
-    [allTxs]
-  );
-
   const availableMonths = useMemo(() => {
     const keys = new Set([currentMonth]);
     allTxs.forEach((t) => keys.add(t.monthKey));
@@ -240,12 +235,17 @@ export default function SaldosView({ people, expenses, settlements, invitations,
     [allTxs, selectedMonth]
   );
 
-  const dateGroups   = groupByDate(filteredTxs);
-  const iOweTotal    = totalBalance < 0;
+  const filteredBalance = useMemo(
+    () => filteredTxs.reduce((s, t) => s + t.amount, 0),
+    [filteredTxs]
+  );
+
+  const dateGroups = groupByDate(filteredTxs);
+  const iOweMonth  = filteredBalance < 0;
 
   const debtSign: "positive" | "negative" | "neutral" =
-    totalBalance > 0 ? "positive" :
-    totalBalance < 0 ? "negative" :
+    filteredBalance > 0 ? "positive" :
+    filteredBalance < 0 ? "negative" :
     "neutral";
 
   function selectPerson(id: string) {
@@ -254,7 +254,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
   }
 
   function openPay() {
-    setAmountRaw(String(Math.abs(totalBalance)));
+    setAmountRaw(String(Math.abs(filteredBalance)));
     setNote("");
     setPayError("");
     setPayOpen(true);
@@ -351,22 +351,20 @@ export default function SaldosView({ people, expenses, settlements, invitations,
           </button>
         )}
 
-        {/* Balance card — total across all months */}
+        {/* Balance card */}
         <BalanceCard
           selectedMonth={selectedMonth}
           availableMonths={availableMonths}
-          showPicker={false}
+          showPicker={availableMonths.length > 1}
           onMonthChange={setSelectedMonth}
           monthLabel={monthLabel}
-          expenseCount={allTxs.length}
-          totalAmount={Math.abs(totalBalance)}
+          expenseCount={filteredTxs.length}
+          totalAmount={Math.abs(filteredBalance)}
           countSuffix="MOVIMIENTO"
-          label="SALDO ACUMULADO"
-          noPill
           debtLabel={
-            allTxs.length > 0 || Math.abs(totalBalance) > 0
-              ? totalBalance > 0 ? "TE DEBE"
-              : totalBalance < 0 ? "DEBES"
+            filteredTxs.length > 0 || Math.abs(filteredBalance) > 0
+              ? filteredBalance > 0 ? "TE DEBE"
+              : filteredBalance < 0 ? "DEBES"
               : "TODO AL DÍA"
               : undefined
           }
@@ -374,35 +372,13 @@ export default function SaldosView({ people, expenses, settlements, invitations,
         />
 
         {/* Pay button */}
-        {iOweTotal && (
+        {iOweMonth && (
           <button className={styles.payBtn} onClick={openPay}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
               <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             Registrar pago
           </button>
-        )}
-
-        {/* Month filter pill */}
-        {availableMonths.length > 1 && (
-          <div className={styles.monthFilterRow}>
-            <div className={styles.monthFilterPill}>
-              <span className={styles.monthFilterLabel}>{monthLabel(selectedMonth)}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path d="M2.5 4.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <select
-                className={styles.monthFilterSelect}
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                aria-label="Filtrar por mes"
-              >
-                {availableMonths.map((k) => (
-                  <option key={k} value={k}>{monthLabel(k)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
         )}
 
         {/* Transaction list */}
@@ -517,7 +493,7 @@ export default function SaldosView({ people, expenses, settlements, invitations,
         onAmountChange={setAmountRaw}
         note={note}
         onNoteChange={setNote}
-        maxAmount={Math.abs(totalBalance)}
+        maxAmount={Math.abs(filteredBalance)}
         error={payError}
         pending={isPending}
         onConfirm={handleConfirm}
