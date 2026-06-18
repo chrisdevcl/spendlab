@@ -8,12 +8,13 @@ import {
 import { useRouter } from "next/navigation";
 import type { ExpenseWithDetails } from "@/types";
 import { formatCLP } from "@/lib/utils/currency";
-import { deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction } from "../actions";
+import { deleteExpense as deleteExpenseAction, markExpenseAsPaid as markExpenseAsPaidAction, moveExpenseToGroup } from "../actions";
 import styles from "./expense-detail.module.css";
 
 interface Props {
   expense: ExpenseWithDetails;
   userId: string;
+  allGroups?: { id: string; name: string }[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ function formatDate(dateStr: string): string {
 export default function ExpenseDetail({
   expense,
   userId,
+  allGroups = [],
 }: Props) {
   const router = useRouter();
 
@@ -81,8 +83,27 @@ export default function ExpenseDetail({
     });
   }
 
+  // ── Move group sheet ───────────────────────────────────────────────────────
+  const [moveGroupOpen, setMoveGroupOpen] = useState(false);
+  const [moveGroupError, setMoveGroupError] = useState("");
+  const [isMoveGroupPending, startMoveGroupTransition] = useTransition();
+
+  function handleMoveGroup(newGroupId: string) {
+    setMoveGroupError("");
+    startMoveGroupTransition(async () => {
+      const result = await moveExpenseToGroup(expense.id, newGroupId);
+      if (result?.error) {
+        setMoveGroupError(result.error);
+      } else {
+        setMoveGroupOpen(false);
+        router.refresh();
+      }
+    });
+  }
+
   const canDelete = expense.paid_by === userId || expense.created_by === userId;
   const canEdit = expense.created_by === userId;
+  const canMoveGroup = canEdit && allGroups.length > 1;
 
   return (
     <div className={styles.page}>
@@ -142,7 +163,20 @@ export default function ExpenseDetail({
           <p className={styles.heroAmount}>{formatCLP(expense.amount)}</p>
           <p className={styles.heroDesc}>{expense.description}</p>
           <div className={styles.heroBadgeRow}>
-            <span className={styles.groupBadge}>{expense.group.name}</span>
+            {canMoveGroup ? (
+              <button
+                className={styles.groupBadgeBtn}
+                onClick={() => { setMoveGroupError(""); setMoveGroupOpen(true); }}
+                disabled={isMoveGroupPending}
+              >
+                {expense.group.name}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                  <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            ) : (
+              <span className={styles.groupBadge}>{expense.group.name}</span>
+            )}
             {!isPersonal && !isPendingExpense && (
               <span className={styles.typeBadgeShared}>Dividido</span>
             )}
@@ -161,7 +195,6 @@ export default function ExpenseDetail({
               </div>
             </div>
 
-            <p className={styles.personalNote}>Gasto personal — sin división ni deudas.</p>
           </>
         ) : (
           /* ── Shared expense ─────────────────────────────────────────── */
@@ -207,6 +240,47 @@ export default function ExpenseDetail({
           </>
         )}
       </div>
+
+      {/* ── Move group sheet ────────────────────────────────────────────── */}
+      {moveGroupOpen && (
+        <div
+          className={styles.backdrop}
+          onClick={() => { if (!isMoveGroupPending) setMoveGroupOpen(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mover a otro grupo"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <p className={styles.modalTitle}>Mover a otro grupo</p>
+              <button className={styles.closeBtn} onClick={() => setMoveGroupOpen(false)} aria-label="Cerrar" disabled={isMoveGroupPending}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+            <div className={styles.groupPickerList}>
+              {allGroups.map((g) => {
+                const isActive = g.id === expense.group_id;
+                return (
+                  <button
+                    key={g.id}
+                    className={`${styles.groupPickerItem} ${isActive ? styles.groupPickerItemActive : ""}`}
+                    onClick={() => { if (!isActive) handleMoveGroup(g.id); }}
+                    disabled={isMoveGroupPending}
+                  >
+                    {g.name}
+                    {isActive && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <path d="M2 7l4 4 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {moveGroupError && <p className={styles.modalError}>{moveGroupError}</p>}
+          </div>
+        </div>
+      )}
 
       {/* ── Delete confirmation modal ────────────────────────────────────── */}
       {deleteOpen && (

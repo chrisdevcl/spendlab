@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getExpense } from "@/lib/services/expenses.service";
+import { getMyGroups } from "@/lib/services/groups.service";
 import ExpenseDetail from "./_components/expense-detail";
 import type { ExpenseWithDetails } from "@/types";
 import type { Profile } from "@/types/database.types";
@@ -50,8 +51,13 @@ export default async function ExpenseDetailPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const expense = await getExpense(expenseId);
+  const [expense, groups] = await Promise.all([
+    getExpense(expenseId),
+    getMyGroups(user.id),
+  ]);
   if (!expense) notFound();
 
-  return <ExpenseDetail expense={expense} userId={user.id} />;
+  const allGroups = (groups ?? []).map((g) => ({ id: g.id, name: g.name }));
+
+  return <ExpenseDetail expense={expense} userId={user.id} allGroups={allGroups} />;
 }

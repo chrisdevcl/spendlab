@@ -119,6 +119,54 @@ export async function updateExpense(
   return {};
 }
 
+export async function moveExpenseToGroup(
+  expenseId: string,
+  newGroupId: string
+): Promise<{ error?: string }> {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return {};
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { data: expense, error: fErr } = await supabase
+    .from("expenses")
+    .select("id, group_id, created_by, paid_by, amount, description, expense_date")
+    .eq("id", expenseId)
+    .single();
+
+  if (fErr || !expense) return { error: "Gasto no encontrado" };
+  if (expense.created_by !== user.id) return { error: "No tienes permiso para editar este gasto" };
+  if (expense.group_id === newGroupId) return {};
+
+  const newMembers = await getGroupMembers(newGroupId);
+  if (!newMembers?.length) return { error: "El grupo no tiene integrantes" };
+
+  const newMemberIds = newMembers.map((m) => m.id);
+  const effectivePaidBy = expense.paid_by && newMemberIds.includes(expense.paid_by)
+    ? expense.paid_by
+    : null;
+
+  const ok = await updateExpenseService(
+    expenseId,
+    newGroupId,
+    effectivePaidBy,
+    expense.amount,
+    expense.description,
+    newMemberIds,
+    expense.expense_date.slice(0, 10)
+  );
+
+  if (!ok) return { error: "Error al mover el gasto. Intenta de nuevo." };
+
+  revalidatePath(`/activity/${expenseId}`);
+  revalidatePath("/activity");
+  revalidatePath(`/groups/${newGroupId}`);
+  revalidatePath(`/groups/${expense.group_id}`);
+
+  return {};
+}
+
 export async function deleteExpense(
   expenseId: string,
   groupId: string
