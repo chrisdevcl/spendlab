@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import styles from "./bottom-nav.module.css";
 
 function IconGroups({ active }: { active: boolean }) {
@@ -86,26 +87,32 @@ function IconProfile({ active }: { active: boolean }) {
   );
 }
 
-const NAV_ITEMS = [
-  { href: "/groups", label: "Grupos", Icon: IconGroups },
-  { href: "/saldos", label: "Saldos", Icon: IconSaldos },
+const BASE_ITEMS = [
+  { href: "/groups",   label: "Grupos",    Icon: IconGroups   },
+  { href: "/saldos",   label: "Saldos",    Icon: IconSaldos,  saldosOnly: true },
   { href: "/activity", label: "Actividad", Icon: IconActivity },
-  { href: "/profile", label: "Perfil", Icon: IconProfile },
+  { href: "/profile",  label: "Perfil",    Icon: IconProfile  },
 ] as const;
 
-export default function BottomNav() {
+export default function BottomNav({ showSaldos }: { showSaldos: boolean }) {
   const pathname = usePathname();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const items = BASE_ITEMS.filter((i) => !("saldosOnly" in i && i.saldosOnly) || showSaldos);
+
+  // Use optimistic href only while pathname hasn't caught up yet
+  const navigating = pendingHref !== null && !pathname.startsWith(pendingHref);
 
   return (
     <nav className={styles.nav} aria-label="Navegación principal">
-      {NAV_ITEMS.map(({ href, label, Icon }) => {
-        const active = pathname.startsWith(href);
+      {items.map(({ href, label, Icon }) => {
+        const active = navigating ? pendingHref === href : pathname.startsWith(href);
         return (
           <Link
             key={href}
             href={href}
             className={`${styles.item}${active ? ` ${styles.active}` : ""}`}
             aria-current={active ? "page" : undefined}
+            onClick={() => setPendingHref(href)}
           >
             <Icon active={active} />
             <span className={styles.label}>{label}</span>

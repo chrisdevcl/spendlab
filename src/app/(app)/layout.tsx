@@ -1,9 +1,18 @@
-"use client";
-import dynamic from "next/dynamic";
+import { Suspense } from "react";
+import PushSetup from "@/components/push-setup";
+import BottomNavWrapper from "@/components/layout/bottom-nav-wrapper";
 import styles from "./layout.module.css";
 
-const BottomNav = dynamic(() => import("@/components/layout/bottom-nav"), { ssr: false });
-const PushSetup = dynamic(() => import("@/components/push-setup"), { ssr: false });
+function NavFallback() {
+  return (
+    <div style={{
+      height: 72,
+      flexShrink: 0,
+      borderTop: "1px solid var(--color-border)",
+      background: "var(--color-bg-surface)",
+    }} />
+  );
+}
 
 export default function AppLayout({
   children,
@@ -14,7 +23,9 @@ export default function AppLayout({
     <div className={styles.shell}>
       <PushSetup />
       <main className={styles.main}>{children}</main>
-      <BottomNav />
+      <Suspense fallback={<NavFallback />}>
+        <BottomNavWrapper />
+      </Suspense>
     </div>
   );
 }
