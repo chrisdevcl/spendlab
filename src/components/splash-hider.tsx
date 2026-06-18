@@ -1,16 +1,21 @@
 "use client";
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
-const MIN_MS = 5000;
+const AUTH_PATHS = ["/login"];
 
 export default function SplashHider() {
+  const pathname = usePathname();
+
   useEffect(() => {
     const el = document.getElementById("splash");
-    if (!el) return;
+    if (!el || el.style.display === "none") return;
+
+    const isAuth = AUTH_PATHS.some((p) => pathname.startsWith(p));
+    const minMs = isAuth ? 0 : 5000;
 
     const start = (window as Window & { __splashStart?: number }).__splashStart ?? Date.now();
-    const elapsed = Date.now() - start;
-    const remaining = Math.max(0, MIN_MS - elapsed);
+    const remaining = Math.max(0, minMs - (Date.now() - start));
 
     const t = setTimeout(() => {
       el.style.transition = "opacity 0.35s ease";
@@ -19,6 +24,7 @@ export default function SplashHider() {
     }, remaining);
 
     return () => clearTimeout(t);
-  }, []);
+  }, [pathname]);
+
   return null;
 }
