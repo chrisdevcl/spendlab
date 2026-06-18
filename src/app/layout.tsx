@@ -39,6 +39,16 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
+        {/* iOS PWA startup images — prevent black screen during WebKit init */}
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-750-1334.png"  media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1125-2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-828-1792.png"  media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1242-2688.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1080-2340.png" media="(device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1170-2532.png" media="(device-width:390px) and (device-height:844px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1284-2778.png" media="(device-width:428px) and (device-height:926px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1179-2556.png" media="(device-width:393px) and (device-height:852px) and (-webkit-device-pixel-ratio:3)" />
+        <link rel="apple-touch-startup-image" href="/splash/apple-splash-1290-2796.png" media="(device-width:430px) and (device-height:932px) and (-webkit-device-pixel-ratio:3)" />
         <style dangerouslySetInnerHTML={{ __html: `
           #splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2rem;background:#111110;}
           html[data-theme='light'] #splash{background:#f5f5f3;}
