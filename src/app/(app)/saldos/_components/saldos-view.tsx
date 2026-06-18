@@ -99,9 +99,11 @@ function computeMovements(
     } else if (exp.paid_by === null && otherId === CAJA_COMUN_ID) {
       const mine = exp.splits.find((s) => s.user_id === userId);
       if (mine) {
-        const unpaid = mine.amount - (mine.paid_amount ?? 0);
-        if (unpaid > 0)
-          txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -unpaid });
+        // Always show the full expense (never filtered by paid_amount)
+        txs.push({ id: exp.id, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: exp.description, groupName: exp.group.name, amount: -mine.amount });
+        // Show any payment made as a separate positive row
+        if ((mine.paid_amount ?? 0) > 0)
+          txs.push({ id: `${exp.id}_pago`, date: exp.expense_date, monthKey: exp.expense_date.slice(0, 7), description: `Pago — ${exp.description}`, groupName: exp.group.name, amount: mine.paid_amount, isSettlement: true });
       }
     }
   }
