@@ -15,7 +15,7 @@ export default function SplashHider() {
     const t = setTimeout(() => {
       el.style.transition = "opacity 0.35s ease";
       el.style.opacity = "0";
-      setTimeout(() => el.remove(), 380);
+      setTimeout(() => { el.style.display = "none"; }, 380);
     }, remaining);
 
     return () => clearTimeout(t);
